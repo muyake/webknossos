@@ -4,10 +4,13 @@
 
 // This needs to be the very first import
 import { createSnapshotable, debugWrapper, waitForAllRequests } from "./e2e-setup";
-import { mount } from "enzyme";
+import { mount, configure } from "enzyme";
+import Adapter from "enzyme-adapter-react-16";
 import test from "ava";
 import mockRequire from "mock-require";
 import React from "react";
+
+configure({ adapter: new Adapter() });
 
 mockRequire("app", {
   currentUser: {
