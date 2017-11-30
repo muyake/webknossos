@@ -80,6 +80,7 @@
     "drop-db": "./tools/dropDB.sh webknossos-testing"
   },
   "dependencies": {
+    "@scalableminds/saxophone": "^0.3.1",
     "airbrake-js": "^0.5.8",
     "antd": "^2.13.4",
     "babel-plugin-transform-object-rest-spread": "^6.26.0",
