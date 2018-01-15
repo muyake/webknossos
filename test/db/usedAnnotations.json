@@ -1,0 +1,6 @@
+{"_id":{"$oid":"5a5cc7ac51e80e78009fcecb"},"user":{"$oid":"5a5cbe6951e80e0b027f6fcf"},"annotationId":{"annotationType":"Explorational","identifier":"5a5cc7ab51e80e96009fceca"}}
+{"_id":{"$oid":"5a5ccb9a51e80e6c029fced8"},"user":{"$oid":"5a5cbd7851e80ec2017f6fca"},"annotationId":{"annotationType":"Task","identifier":"5a5ccb8951e80e61029fced5"}}
+{"_id":{"$oid":"5a5ccca951e80ee0029fcee5"},"user":{"$oid":"5a5cbe2551e80ee9017f6fcd"},"annotationId":{"annotationType":"Explorational","identifier":"5a5ccca851e80ee7029fcee3"}}
+{"_id":{"$oid":"5a5cd11e51e80e12049fcf18"},"user":{"$oid":"5a5cbddc51e80ed5017f6fcb"},"annotationId":{"annotationType":"Explorational","identifier":"5a5cd11d51e80e0b049fcf16"}}
+{"_id":{"$oid":"5a5cd30751e80ef5039fcf29"},"user":{"$oid":"5a5cbdf151e80ee9017f6fcc"},"annotationId":{"annotationType":"Task","identifier":"5a5cd30751e80ef5039fcf27"}}
+{"_id":{"$oid":"5a5ce0fe51e80eae009047cd"},"user":{"$oid":"5a5cb9bb51e80e96007f6fbc"},"annotationId":{"annotationType":"Explorational","identifier":"5a5cdaab51e80ed4008fdb62"}}
