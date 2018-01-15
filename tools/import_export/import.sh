@@ -21,8 +21,9 @@ do
   mongo "$db" --eval "db.createCollection('$collection')"
 done
 
-bash "$SCRIPT_DIR/../activateValidation.sh" "$db" "$SCRIPT_DIR/../../conf/schemas"
-bash "$SCRIPT_DIR/../validationAction.sh" "$db" "error" "$SCRIPT_DIR/../../conf/schemas"
+# Disable because schema is broken / outdated
+# bash "$SCRIPT_DIR/../activateValidation.sh" "$db" "$SCRIPT_DIR/../../conf/schemas"
+# bash "$SCRIPT_DIR/../validationAction.sh" "$db" "error" "$SCRIPT_DIR/../../conf/schemas"
 
 for dump_file in $(ls "$dump_dir")
 do
