@@ -2,23 +2,36 @@
 /* eslint-disable jsx-a11y/href-no-hash */
 
 import * as React from "react";
+import { connect } from "react-redux";
+import { Link, withRouter } from "react-router-dom";
 import Request from "libs/request";
 import { AsyncButton } from "components/async_clickables";
-import { Spin, Table, Button, Modal, Tag } from "antd";
+import { Spin, Table, Button, Modal, Tag, Icon } from "antd";
 import Markdown from "react-remarkable";
 import Utils from "libs/utils";
 import moment from "moment";
 import Toast from "libs/toast";
-import app from "app";
+import messages from "messages";
 import TransferTaskModal from "dashboard/views/transfer_task_modal";
-import type { APITaskWithAnnotationType } from "admin/api_flow_types";
+import { deleteAnnotation, resetAnnotation } from "admin/admin_rest_api";
+import { getActiveUser } from "oxalis/model/accessors/user_accessor";
+import Persistence from "libs/persistence";
+import { PropTypes } from "prop-types";
+import type { APITaskWithAnnotationType, APIUserType } from "admin/api_flow_types";
+import type { OxalisState } from "oxalis/store";
+import type { RouterHistory } from "react-router-dom";
 
 const { Column } = Table;
 
-type Props = {
-  userID: ?string,
-  isAdminView: boolean,
+type StateProps = {
+  activeUser: APIUserType,
 };
+
+type Props = {
+  userId: ?string,
+  isAdminView: boolean,
+  history: RouterHistory,
+} & StateProps;
 
 type State = {
   showFinishedTasks: boolean,
@@ -29,13 +42,20 @@ type State = {
   currentAnnotationId: ?string,
 };
 
+const persistence: Persistence<State> = new Persistence(
+  { showFinishedTasks: PropTypes.bool },
+  "dashboardTaskList",
+);
+
 const convertAnnotationToTaskWithAnnotationType = (annotation): APITaskWithAnnotationType => {
   const { task } = annotation;
 
   if (!task) {
     // This should never be the case unless tasks were deleted in the DB.
-    throw Error(
-      `[Dashboard Tasks] Annotation ${annotation.id} has no task assigned. Please inform your admin.`,
+    throw new Error(
+      `[Dashboard Tasks] Annotation ${
+        annotation.id
+      } has no task assigned. Please inform your admin.`,
     );
   }
 
@@ -51,7 +71,7 @@ const convertAnnotationToTaskWithAnnotationType = (annotation): APITaskWithAnnot
   return task;
 };
 
-export default class DashboardTaskListView extends React.PureComponent<Props, State> {
+class DashboardTaskListView extends React.PureComponent<Props, State> {
   state = {
     showFinishedTasks: false,
     finishedTasks: [],
@@ -61,15 +81,23 @@ export default class DashboardTaskListView extends React.PureComponent<Props, St
     currentAnnotationId: null,
   };
 
+  componentWillMount() {
+    this.setState(persistence.load(this.props.history));
+  }
+
   componentDidMount() {
     this.fetchData();
+  }
+
+  componentWillUpdate(nextProps, nextState) {
+    persistence.persist(this.props.history, nextState);
   }
 
   getFinishVerb = () => (this.state.showFinishedTasks ? "Unfinished" : "Finished");
 
   confirmFinish(task: APITaskWithAnnotationType) {
     Modal.confirm({
-      content: "Are you sure you want to permanently finish this tracing?",
+      content: messages["annotation.finish"],
       onOk: async () => {
         const annotation = task.annotation;
         const url = `/annotations/${annotation.typ}/${annotation.id}/finish`;
@@ -91,8 +119,8 @@ export default class DashboardTaskListView extends React.PureComponent<Props, St
   async fetchData(): Promise<void> {
     this.setState({ isLoading: true });
     const isFinished = this.state.showFinishedTasks;
-    const url = this.props.userID
-      ? `/api/users/${this.props.userID}/tasks?isFinished=${isFinished.toString()}`
+    const url = this.props.userId
+      ? `/api/users/${this.props.userId}/tasks?isFinished=${isFinished.toString()}`
       : `/api/user/tasks?isFinished=${isFinished.toString()}`;
     const annotationsWithTasks = await Request.receiveJSON(url);
 
@@ -117,84 +145,78 @@ export default class DashboardTaskListView extends React.PureComponent<Props, St
 
   renderActions = (task: APITaskWithAnnotationType) => {
     const annotation = task.annotation;
-    const isAdmin = app.currentUser.teams
+    const isAdmin = this.props.activeUser.teams
       .filter(team => team.role.name === "admin")
       .map(team => team.team)
       .includes(task.team);
 
-    const label = this.props.isAdminView ? "View" : "Trace";
+    // TODO use React fragments <> instead of spans / divs
+    const label = this.props.isAdminView ? (
+      <span>
+        <Icon type="eye-o" />View
+      </span>
+    ) : (
+      <span>
+        <Icon type="play-circle-o" />Trace
+      </span>
+    );
 
-    return task.annotation.state.isFinished ? (
+    return task.annotation.state === "Finished" ? (
       <div>
-        <i className="fa fa-check" />
-        <span> Finished</span>
+        <Icon type="check-circle-o" />Finished
         <br />
       </div>
     ) : (
-      <ul>
-        <li>
-          <a href={`/annotations/Task/${annotation.id}`}>
-            <i className="fa fa-random" />
-            <strong>{label}</strong>
-          </a>
-        </li>
+      <div>
+        <Link to={`/annotations/Task/${annotation.id}`}>{label}</Link>
+        <br />
         {isAdmin || this.props.isAdminView ? (
-          <li>
+          <div>
             <a href="#" onClick={() => this.openTransferModal(annotation.id)}>
-              <i className="fa fa-share" />
-              Transfer
+              <Icon type="team" />Transfer
             </a>
-          </li>
+            <br />
+          </div>
         ) : null}
         {isAdmin ? (
           <div>
-            <li>
-              <a href={`/annotations/Task/${annotation.id}/download`}>
-                <i className="fa fa-download" />
-                Download
-              </a>
-            </li>
-            <li>
-              <a href="#" onClick={() => this.resetTask(annotation.id)}>
-                <i className="fa fa-undo" />
-                Reset
-              </a>
-            </li>
-            <li>
-              <a href="#" onClick={() => this.cancelAnnotation(annotation.id)}>
-                <i className="fa fa-trash-o" />
-                Cancel
-              </a>
-            </li>
+            <a href={`/annotations/Task/${annotation.id}/download`}>
+              <Icon type="download" />Download
+            </a>
+            <br />
+            <a href="#" onClick={() => this.resetTask(annotation.id)}>
+              <Icon type="rollback" />Reset
+            </a>
+            <br />
+            <a href="#" onClick={() => this.cancelAnnotation(annotation.id)}>
+              <Icon type="delete" />Cancel
+            </a>
+            <br />
           </div>
         ) : null}
         {this.props.isAdminView ? null : (
-          <li>
-            <a href="#" onClick={() => this.confirmFinish(task)}>
-              <i className="fa fa-check-circle-o" />
-              Finish
-            </a>
-          </li>
+          <a href="#" onClick={() => this.confirmFinish(task)}>
+            <Icon type="check-circle-o" />Finish
+          </a>
         )}
-      </ul>
+      </div>
     );
   };
 
-  resetTask(annotationId: string) {
-    const url = `/annotations/Task/${annotationId}/reset`;
-
-    Request.receiveJSON(url).then(jsonData => {
-      Toast.message(jsonData.messages);
-    });
+  async resetTask(annotationId: string) {
+    await resetAnnotation(annotationId);
+    Toast.success(messages["task.reset_success"]);
   }
 
   cancelAnnotation(annotationId: string) {
     const wasFinished = this.state.showFinishedTasks;
 
     Modal.confirm({
-      content: "Do you really want to cancel this annotation?",
+      content: messages["annotation.delete"],
+      cancelText: messages.no,
+      okText: messages.yes,
       onOk: async () => {
-        await Request.triggerRequest(`/annotations/Task/${annotationId}`, { method: "DELETE" });
+        await deleteAnnotation(annotationId);
         if (wasFinished) {
           this.setState({
             finishedTasks: this.state.finishedTasks.filter(t => t.annotation.id !== annotationId),
@@ -224,7 +246,7 @@ export default class DashboardTaskListView extends React.PureComponent<Props, St
   async getNewTask() {
     this.setState({ isLoading: true });
     try {
-      const newTaskAnnotation = await Request.receiveJSON("/user/tasks/request");
+      const newTaskAnnotation = await Request.receiveJSON("/api/user/tasks/request");
 
       this.setState({
         unfinishedTasks: this.state.unfinishedTasks.concat([
@@ -262,28 +284,32 @@ export default class DashboardTaskListView extends React.PureComponent<Props, St
   renderTable() {
     return (
       <Table
-        dataSource={this.getCurrentTasks().filter(
-          task => task.annotation.state.isFinished === this.state.showFinishedTasks,
-        )}
+        dataSource={this.getCurrentTasks().filter(task => {
+          if (this.state.showFinishedTasks) return task.annotation.state === "Finished";
+          else return task.annotation.state !== "Finished";
+        })}
         rowKey="id"
         pagination={{
           defaultPageSize: 50,
         }}
       >
         <Column
-          title="#"
+          title="ID"
           dataIndex="id"
+          width={100}
           sorter={Utils.localeCompareBy("id")}
           className="monospace-id"
         />
         <Column
           title="Type"
           dataIndex="type.summary"
+          width={200}
           sorter={Utils.localeCompareBy(t => t.type.summary)}
         />
         <Column
           title="Project"
           dataIndex="projectName"
+          width={110}
           sorter={Utils.localeCompareBy("projectName")}
         />
         <Column
@@ -291,7 +317,7 @@ export default class DashboardTaskListView extends React.PureComponent<Props, St
           dataIndex="type.description"
           sorter={Utils.localeCompareBy(t => t.type.description)}
           render={description => (
-            <div style={{ wordBreak: "break-word" }} className="task-type-description">
+            <div className="task-type-description">
               <Markdown
                 source={description}
                 options={{ html: false, breaks: true, linkify: true }}
@@ -309,12 +335,14 @@ export default class DashboardTaskListView extends React.PureComponent<Props, St
         <Column
           title="Creation Date"
           dataIndex="created"
+          width={150}
           sorter={Utils.localeCompareBy("created")}
           render={created => moment(created).format("YYYY-MM-DD HH:SS")}
         />
         <Column
           title="Actions"
           className="nowrap"
+          width={150}
           render={(__, task) => this.renderActions(task)}
         />
       </Table>
@@ -325,39 +353,39 @@ export default class DashboardTaskListView extends React.PureComponent<Props, St
     return (
       <div>
         <div className="pull-right">
-          {this.props.isAdminView && this.props.userID ? (
-            <a href={`/api/users/${this.props.userID}/annotations/download`}>
-              <Button icon="download">Download All Finished Tracings</Button>
-            </a>
-          ) : (
-            <AsyncButton type="primary" icon="file-add" onClick={() => this.confirmGetNewTask()}>
-              Get a New Task
-            </AsyncButton>
-          )}
-          <div className="divider-vertical" />
-          <Button onClick={this.toggleShowFinished}>Show {this.getFinishVerb()} Tasks Only</Button>
+          <AsyncButton
+            type="primary"
+            icon="file-add"
+            onClick={() => this.confirmGetNewTask()}
+            disabled={this.props.isAdminView && this.props.userId}
+          >
+            Get a New Task
+          </AsyncButton>
+          <Button onClick={this.toggleShowFinished} style={{ marginLeft: 20 }}>
+            Show {this.getFinishVerb()} Tasks Only
+          </Button>
         </div>
         <h3 id="tasksHeadline" className="TestTasksHeadline">
           Tasks
         </h3>
         <div className="clearfix" style={{ margin: "20px 0px" }} />
 
-        {this.state.isLoading ? (
-          <div className="text-center">
-            <Spin size="large" />
-          </div>
-        ) : (
-          this.renderTable()
-        )}
+        <Spin spinning={this.state.isLoading}>{this.renderTable()}</Spin>
 
         <TransferTaskModal
           visible={this.state.isTransferModalVisible}
           annotationId={this.state.currentAnnotationId}
           onCancel={() => this.setState({ isTransferModalVisible: false })}
           onChange={() => this.handleTransferredTask()}
-          userID={this.props.userID}
+          userId={this.props.userId}
         />
       </div>
     );
   }
 }
+
+const mapStateToProps = (state: OxalisState): StateProps => ({
+  activeUser: getActiveUser(state.activeUser),
+});
+
+export default connect(mapStateToProps)(withRouter(DashboardTaskListView));

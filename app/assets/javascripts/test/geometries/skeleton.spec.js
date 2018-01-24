@@ -6,13 +6,7 @@ import test from "ava";
 import mockRequire from "mock-require";
 import _ from "lodash";
 import { getSkeletonTracing } from "oxalis/model/accessors/skeletontracing_accessor";
-import {
-  createNodeAction,
-  createTreeAction,
-  deleteNodeAction,
-  createBranchPointAction,
-  setNodeRadiusAction,
-} from "oxalis/model/actions/skeletontracing_actions";
+import { tracing, annotation } from "../fixtures/skeletontracing_server_objects";
 
 mockRequire.stopAll();
 mockRequire("app", { currentUser: { firstName: "SCM", lastName: "Boy" } });
@@ -25,15 +19,28 @@ const Utils = mockRequire.reRequire("libs/utils").default;
 const NodeShader = mockRequire.reRequire("oxalis/geometries/materials/node_shader");
 const Store = mockRequire.reRequire("oxalis/store").default;
 const Skeleton = mockRequire.reRequire("oxalis/geometries/skeleton").default;
+const {
+  createNodeAction,
+  createTreeAction,
+  deleteNodeAction,
+  createBranchPointAction,
+  setNodeRadiusAction,
+  initializeSkeletonTracingAction,
+} = mockRequire.reRequire("oxalis/model/actions/skeletontracing_actions");
 
 test.before(t => {
   const rotation = [0.5, 0.5, 0.5];
   const viewport = 0;
   const resolution = 0;
 
+  tracing.trees = [];
+  delete tracing.activeNodeId;
+  Store.dispatch(initializeSkeletonTracingAction(annotation, tracing));
+
   // create 20 trees with 100 nodes each
   for (let i = 0; i < 2000; i++) {
-    if (i % 100 === 0) {
+    // The first tree is created automatically
+    if (i % 100 === 0 && i !== 0) {
       Store.dispatch(createTreeAction());
     }
     Store.dispatch(createNodeAction([i, i, i], rotation, viewport, resolution));
@@ -43,7 +50,7 @@ test.before(t => {
     const trees = skeletonTracing.trees;
     t.is(_.size(trees), 20);
     for (const tree of Object.values(trees)) {
-      t.is(_.size(tree.nodes), 100);
+      t.is(tree.nodes.size(), 100);
     }
   });
 });
@@ -70,7 +77,7 @@ test.serial("Skeleton should initialize correctly using the store's state", t =>
 
     for (const tree of Object.values(trees)) {
       treeColors = treeColors.concat(skeleton.getTreeRGBA(tree.color, tree.isVisible));
-      for (const node of Object.values(tree.nodes)) {
+      for (const node of Array.from(tree.nodes.values())) {
         nodePositions = nodePositions.concat(node.position);
         nodeTreeIds.push(tree.treeId);
         nodeRadii.push(node.radius);
@@ -78,8 +85,8 @@ test.serial("Skeleton should initialize correctly using the store's state", t =>
         nodeTypes.push(NodeShader.NodeTypes.NORMAL);
       }
       for (const edge of tree.edges) {
-        const sourcePosition = tree.nodes[edge.source].position;
-        const targetPosition = tree.nodes[edge.target].position;
+        const sourcePosition = tree.nodes.get(edge.source).position;
+        const targetPosition = tree.nodes.get(edge.target).position;
         edgePositions = edgePositions.concat(sourcePosition).concat(targetPosition);
         edgeTreeIds.push(tree.treeId, tree.treeId);
       }

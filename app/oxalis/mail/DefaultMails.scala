@@ -1,10 +1,9 @@
 package oxalis.mail
 
-import views._
-import models.user.User
-import play.api.Play
-import play.api.i18n.Messages
 import com.scalableminds.util.mail.Mail
+import models.user.User
+import play.api.i18n.Messages
+import views._
 
 object DefaultMails {
   /**
@@ -54,15 +53,23 @@ object DefaultMails {
   def activatedMail(name: String, receiver: String) =
     Mail(
       from = defaultFrom,
-      subject = s"Your account on $uri got activated",
+      subject = s"Your account on $uri was activated",
       bodyText = html.mail.validated(name, uri).body,
       recipients = List(receiver))
 
   def changePasswordMail(name: String, receiver: String) = {
     Mail(
       from = defaultFrom,
-      subject = "Your Oxalis password was changed",
+      subject = "Your webKnossos password was changed",
       bodyText = html.mail.passwordChanged(name).body,
+      recipients = List(receiver))
+  }
+
+  def resetPasswordMail(name: String, receiver: String, token: String) = {
+    Mail(
+      from = defaultFrom,
+      subject = "Your webKnossos password was reset",
+      bodyText = html.mail.resetPassword(name, uri, token).body,
       recipients = List(receiver))
   }
 

@@ -6,7 +6,8 @@
 import _ from "lodash";
 import type { Vector3, Vector4, Vector6, BoundingBoxType } from "oxalis/constants";
 import Maybe from "data.maybe";
-import window from "libs/window";
+import window, { document, location } from "libs/window";
+import pako from "pako";
 import type { APIUserType } from "admin/api_flow_types";
 
 type Comparator<T> = (T, T) => -1 | 0 | 1;
@@ -70,7 +71,9 @@ const Utils = {
     return [r, g, b, 1];
   },
 
-  computeBoundingBoxFromArray(bb: Vector6): BoundingBoxType {
+  computeBoundingBoxFromArray(bb: ?Vector6): ?BoundingBoxType {
+    if (bb == null) return null;
+
     const [x, y, z, width, height, depth] = bb;
 
     return {
@@ -79,16 +82,34 @@ const Utils = {
     };
   },
 
-  compareBy<T: Object>(key: string, isSortedAscending: boolean = true): Comparator<T> {
+  computeArrayFromBoundingBox(bb: ?BoundingBoxType): ?Vector6 {
+    return bb != null
+      ? [
+          bb.min[0],
+          bb.min[1],
+          bb.min[2],
+          bb.max[0] - bb.min[0],
+          bb.max[1] - bb.min[1],
+          bb.max[2] - bb.min[2],
+        ]
+      : null;
+  },
+
+  compareBy<T: Object>(
+    selector: string | (T => number),
+    isSortedAscending: boolean = true,
+  ): Comparator<T> {
     // generic key comparator for array.prototype.sort
-    return function(a: T, b: T) {
+    return (a: T, b: T) => {
       if (!isSortedAscending) {
         [a, b] = [b, a];
       }
-      if (a[key] < b[key]) {
+      const valueA = typeof selector === "function" ? selector(a) : a[selector];
+      const valueB = typeof selector === "function" ? selector(b) : b[selector];
+      if (valueA < valueB) {
         return -1;
       }
-      if (a[key] > b[key]) {
+      if (valueA > valueB) {
         return 1;
       }
       return 0;
@@ -123,7 +144,7 @@ const Utils = {
     const result = [];
     for (const e of stringArray) {
       const newEl = parseFloat(e);
-      if (!isNaN(newEl)) {
+      if (!Number.isNaN(newEl)) {
         result.push(newEl);
       }
     }
@@ -151,14 +172,6 @@ const Utils = {
     return output;
   },
 
-  loaderTemplate(): string {
-    return `\
-<div id="loader-icon">
-  <i class="fa fa-spinner fa-spin fa-4x"></i>
-  <br>Loading
-</div>`;
-  },
-
   isElementInViewport(el: Element): boolean {
     const rect = el.getBoundingClientRect();
     return (
@@ -183,9 +196,9 @@ const Utils = {
     return _.findIndex(user.teams, team => team.role.name === "admin") >= 0;
   },
 
-  getUrlParams(paramName: string): { [key: string]: string | boolean } {
+  getUrlParamsObject(): { [key: string]: string | boolean } {
     // Parse the URL parameters as objects and return it or just a single param
-    const params = window.location.search
+    return location.search
       .substring(1)
       .split("&")
       .reduce((result, value): void => {
@@ -200,12 +213,16 @@ const Utils = {
         }
         return result;
       }, {});
+  },
 
-    if (paramName) {
-      return params[paramName];
-    } else {
-      return params;
-    }
+  getUrlParamValue(paramName: string): string {
+    const params = this.getUrlParamsObject();
+    return params[paramName];
+  },
+
+  hasUrlParam(paramName: string): boolean {
+    const params = this.getUrlParamsObject();
+    return Object.prototype.hasOwnProperty.call(params, paramName);
   },
 
   __range__(left: number, right: number, inclusive: boolean): Array<number> {
@@ -346,6 +363,57 @@ const Utils = {
         ),
       );
     }
+  },
+
+  millisecondsToMinutes(ms: number) {
+    return ms / 60000;
+  },
+
+  minutesToMilliseconds(min: number) {
+    return min * 60000;
+  },
+
+  isNoElementFocussed(): boolean {
+    // checks whether an <input> or <button> element has the focus
+    // when no element is focused <body> gets the focus
+    return document.activeElement === document.body;
+  },
+
+  // https://stackoverflow.com/questions/25248286/native-js-equivalent-to-jquery-delegation#
+  addEventListenerWithDelegation(
+    element: HTMLElement,
+    eventName: string,
+    delegateSelector: string,
+    handlerFunc: Function,
+  ) {
+    const wrapperFunc = function(event: Event) {
+      // $FlowFixMe Flow doesn't know native InputEvents
+      for (let target = event.target; target && target !== this; target = target.parentNode) {
+        // $FlowFixMe Flow doesn't know native InputEvents
+        if (target.matches(delegateSelector)) {
+          handlerFunc.call(target, event);
+          break;
+        }
+      }
+    };
+    element.addEventListener(eventName, wrapperFunc, false);
+    return { [eventName]: wrapperFunc };
+  },
+
+  async compress(data: Uint8Array | string): Promise<Uint8Array> {
+    const DEFLATE_PUSH_SIZE = 65536;
+
+    const deflator = new pako.Deflate({ gzip: true });
+    for (let offset = 0; offset < data.length; offset += DEFLATE_PUSH_SIZE) {
+      // The second parameter to push indicates whether this is the last chunk to be deflated
+      deflator.push(
+        data.slice(offset, offset + DEFLATE_PUSH_SIZE),
+        offset + DEFLATE_PUSH_SIZE >= data.length,
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await Utils.sleep(1);
+    }
+    return deflator.result;
   },
 };
 

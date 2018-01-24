@@ -3,14 +3,22 @@
 
 import _ from "lodash";
 import * as React from "react";
+import { Link, withRouter } from "react-router-dom";
 import { Table, Icon, Spin, Button, Input, Modal } from "antd";
 import Utils from "libs/utils";
-import Request from "libs/request";
 import messages from "messages";
-import type { APIScriptType } from "admin/api_flow_types";
+import { getScripts, deleteScript } from "admin/admin_rest_api";
+import Persistence from "libs/persistence";
+import { PropTypes } from "prop-types";
+import type { APIScriptType, APIUserType } from "admin/api_flow_types";
+import type { RouterHistory } from "react-router-dom";
 
 const { Column } = Table;
 const { Search } = Input;
+
+type Props = {
+  history: RouterHistory,
+};
 
 type State = {
   isLoading: boolean,
@@ -18,20 +26,32 @@ type State = {
   searchQuery: string,
 };
 
-class ScriptListView extends React.PureComponent<{}, State> {
+const persistence: Persistence<State> = new Persistence(
+  { searchQuery: PropTypes.string },
+  "scriptList",
+);
+
+class ScriptListView extends React.PureComponent<Props, State> {
   state = {
     isLoading: true,
     scripts: [],
     searchQuery: "",
   };
 
+  componentWillMount() {
+    this.setState(persistence.load(this.props.history));
+  }
+
   componentDidMount() {
     this.fetchData();
   }
 
+  componentWillUpdate(nextProps, nextState) {
+    persistence.persist(this.props.history, nextState);
+  }
+
   async fetchData(): Promise<void> {
-    const url = "/api/scripts";
-    const scripts = await Request.receiveJSON(url);
+    const scripts = await getScripts();
 
     this.setState({
       isLoading: false,
@@ -43,22 +63,18 @@ class ScriptListView extends React.PureComponent<{}, State> {
     this.setState({ searchQuery: event.target.value });
   };
 
-  deleteScript = async (script: APIScriptType) => {
+  deleteScript = (script: APIScriptType) => {
     Modal.confirm({
       title: messages["script.delete"],
-      onOk: () => {
+      onOk: async () => {
         this.setState({
           isLoading: true,
         });
 
-        const url = `/api/scripts/${script.id}`;
-        Request.receiveJSON(url, {
-          method: "DELETE",
-        }).then(() => {
-          this.setState({
-            isLoading: false,
-            scripts: this.state.scripts.filter(p => p.id !== script.id),
-          });
+        await deleteScript(script.id);
+        this.setState({
+          isLoading: false,
+          scripts: this.state.scripts.filter(s => s.id !== script.id),
         });
       },
     });
@@ -68,18 +84,19 @@ class ScriptListView extends React.PureComponent<{}, State> {
     const marginRight = { marginRight: 20 };
 
     return (
-      <div className="container wide">
-        <div style={{ marginTag: 20 }}>
+      <div className="container">
+        <div>
           <div className="pull-right">
-            <a href="/scripts/create">
+            <Link to="/scripts/create">
               <Button icon="plus" style={marginRight} type="primary">
                 Add Script
               </Button>
-            </a>
+            </Link>
             <Search
               style={{ width: 200 }}
               onPressEnter={this.handleSearch}
               onChange={this.handleSearch}
+              value={this.state.searchQuery}
             />
           </div>
           <h3>Scripts</h3>
@@ -117,22 +134,27 @@ class ScriptListView extends React.PureComponent<{}, State> {
                 dataIndex="owner"
                 key="owner"
                 sorter={Utils.localeCompareBy((scripts: APIScriptType) => scripts.owner.lastName)}
-                render={owner => `${owner.firstName} ${owner.lastName}`}
+                render={(owner: APIUserType) => `${owner.firstName} ${owner.lastName}`}
               />
               <Column
                 title="Gist URL"
                 dataIndex="gist"
                 key="gist"
                 sorter={Utils.localeCompareBy("gist")}
+                render={(gist: string) => (
+                  <a href={gist} target="_blank" rel="noopener noreferrer">
+                    {gist}
+                  </a>
+                )}
               />
               <Column
                 title="Action"
                 key="actions"
                 render={(__, script: APIScriptType) => (
                   <span>
-                    <a href={`/scripts/${script.id}/edit`}>
+                    <Link to={`/scripts/${script.id}/edit`}>
                       <Icon type="edit" />Edit
-                    </a>
+                    </Link>
                     <br />
                     <a href="#" onClick={_.partial(this.deleteScript, script)}>
                       <Icon type="delete" />Delete
@@ -148,4 +170,4 @@ class ScriptListView extends React.PureComponent<{}, State> {
   }
 }
 
-export default ScriptListView;
+export default withRouter(ScriptListView);

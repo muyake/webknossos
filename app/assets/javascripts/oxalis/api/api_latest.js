@@ -1,6 +1,6 @@
 /*
  * api_latest.js
- * @flow strict
+ * @flow
  */
 
 import _ from "lodash";
@@ -38,13 +38,12 @@ import type {
   DatasetConfigurationType,
   TreeMapType,
   TracingType,
-  SkeletonTracingTypeTracingType,
+  TracingTypeTracingType,
 } from "oxalis/store";
 import { overwriteAction } from "oxalis/model/helpers/overwrite_action_middleware";
 import Toast from "libs/toast";
 import Request from "libs/request";
-import app from "app";
-import window from "libs/window";
+import window, { location } from "libs/window";
 import Utils from "libs/utils";
 import { ControlModeEnum, OrthoViews, VolumeToolEnum } from "oxalis/constants";
 import { setPositionAction, setRotationAction } from "oxalis/model/actions/flycam_actions";
@@ -55,22 +54,25 @@ import UrlManager from "oxalis/controller/url_manager";
 import { centerTDViewAction } from "oxalis/model/actions/view_mode_actions";
 import { rotate3DViewTo } from "oxalis/controller/camera_controller";
 import dimensions from "oxalis/model/dimensions";
+import { doWithToken } from "admin/admin_rest_api";
+import { discardSaveQueueAction } from "oxalis/model/actions/save_actions";
+import type { ToastStyleType } from "libs/toast";
 
 function assertExists(value: any, message: string) {
   if (value == null) {
-    throw Error(message);
+    throw new Error(message);
   }
 }
 
 function assertSkeleton(tracing: TracingType) {
   if (tracing.type !== "skeleton") {
-    throw Error("This api function should only be called in a skeleton tracing.");
+    throw new Error("This api function should only be called in a skeleton tracing.");
   }
 }
 
 function assertVolume(tracing: TracingType) {
   if (tracing.type !== "volume") {
-    throw Error("This api function should only be called in a volume tracing.");
+    throw new Error("This api function should only be called in a volume tracing.");
   }
 }
 /**
@@ -81,8 +83,8 @@ function assertVolume(tracing: TracingType) {
 class TracingApi {
   model: OxalisModel;
   /**
-  * @private
-  */
+   * @private
+   */
   constructor(model: OxalisModel) {
     this.model = model;
   }
@@ -90,8 +92,8 @@ class TracingApi {
   //  SKELETONTRACING API
 
   /**
-  * Returns the id of the current active node.
-  */
+   * Returns the id of the current active node.
+   */
   getActiveNodeId(): ?number {
     const tracing = Store.getState().tracing;
     assertSkeleton(tracing);
@@ -101,8 +103,8 @@ class TracingApi {
   }
 
   /**
-  * Returns the id of the current active tree.
-  */
+   * Returns the id of the current active tree.
+   */
   getActiveTreeId(): ?number {
     const tracing = Store.getState().tracing;
     assertSkeleton(tracing);
@@ -112,8 +114,8 @@ class TracingApi {
   }
 
   /**
-  * Sets the active node given a node id.
-  */
+   * Sets the active node given a node id.
+   */
   setActiveNode(id: number) {
     assertSkeleton(Store.getState().tracing);
     assertExists(id, "Node id is missing.");
@@ -121,22 +123,22 @@ class TracingApi {
   }
 
   /**
-  * Returns all nodes belonging to a tracing.
-  */
+   * Returns all nodes belonging to a tracing.
+   */
   getAllNodes(): Array<NodeType> {
     const tracing = Store.getState().tracing;
     assertSkeleton(tracing);
     return getSkeletonTracing(tracing)
       .map(skeletonTracing => {
         const { trees } = skeletonTracing;
-        return _.flatMap(trees, tree => _.values(tree.nodes));
+        return _.flatMap(trees, tree => Array.from(tree.nodes.values()));
       })
       .getOrElse([]);
   }
 
   /**
-  * Returns all trees belonging to a tracing.
-  */
+   * Returns all trees belonging to a tracing.
+   */
   getAllTrees(): TreeMapType {
     const tracing = Store.getState().tracing;
     assertSkeleton(tracing);
@@ -154,12 +156,12 @@ class TracingApi {
   }
 
   /**
-  * Sets the comment for a node.
-  *
-  * @example
-  * const activeNodeId = api.tracing.getActiveNodeId();
-  * api.tracing.setCommentForNode("This is a branch point", activeNodeId);
-  */
+   * Sets the comment for a node.
+   *
+   * @example
+   * const activeNodeId = api.tracing.getActiveNodeId();
+   * api.tracing.setCommentForNode("This is a branch point", activeNodeId);
+   */
   setCommentForNode(commentText: string, nodeId: number, treeId?: number): void {
     const tracing = Store.getState().tracing;
     assertSkeleton(tracing);
@@ -174,21 +176,21 @@ class TracingApi {
         assertExists(tree, `Couldn't find node ${nodeId}.`);
         Store.dispatch(createCommentAction(commentText, nodeId, tree.treeId));
       } else {
-        throw Error("Node id is missing.");
+        throw new Error("Node id is missing.");
       }
     });
   }
 
   /**
-  * Returns the comment for a given node and tree (optional).
-  * @param tree - Supplying the tree will provide a performance boost for looking up a comment.
-  *
-  * @example
-  * const comment = api.tracing.getCommentForNode(23);
-  *
-  * @example // Provide a tree for lookup speed boost
-  * const comment = api.tracing.getCommentForNode(23, api.getActiveTreeid());
-  */
+   * Returns the comment for a given node and tree (optional).
+   * @param tree - Supplying the tree will provide a performance boost for looking up a comment.
+   *
+   * @example
+   * const comment = api.tracing.getCommentForNode(23);
+   *
+   * @example // Provide a tree for lookup speed boost
+   * const comment = api.tracing.getCommentForNode(23, api.getActiveTreeid());
+   */
   getCommentForNode(nodeId: number, treeId?: number): ?string {
     const tracing = Store.getState().tracing;
     assertSkeleton(tracing);
@@ -200,24 +202,24 @@ class TracingApi {
         if (treeId != null) {
           tree = skeletonTracing.trees[treeId];
           assertExists(tree, `Couldn't find tree ${treeId}.`);
-          assertExists(tree.nodes[nodeId], `Couldn't find node ${nodeId} in tree ${treeId}.`);
+          assertExists(tree.nodes.get(nodeId), `Couldn't find node ${nodeId} in tree ${treeId}.`);
         } else {
-          tree = _.values(skeletonTracing.trees).find(__ => __.nodes[nodeId] != null);
+          tree = _.values(skeletonTracing.trees).find(__ => __.nodes.has(nodeId));
           assertExists(tree, `Couldn't find node ${nodeId}.`);
         }
         // $FlowFixMe TODO remove once https://github.com/facebook/flow/issues/34 is closed
-        const comment = tree.comments.find(__ => __.node === nodeId);
+        const comment = tree.comments.find(__ => __.nodeId === nodeId);
         return comment != null ? comment.content : null;
       })
       .getOrElse(null);
   }
 
   /**
-  * Sets the name for a tree. If no tree id is given, the active tree is used.
-  *
-  * @example
-  * api.tracing.setTreeName("Special tree", 1);
-  */
+   * Sets the name for a tree. If no tree id is given, the active tree is used.
+   *
+   * @example
+   * api.tracing.setTreeName("Special tree", 1);
+   */
   setTreeName(name: string, treeId: ?number) {
     const tracing = Store.getState().tracing;
     assertSkeleton(tracing);
@@ -230,11 +232,11 @@ class TracingApi {
   }
 
   /**
-  * Returns the name for a given tree id. If none is given, the name of the active tree is returned.
-  *
-  * @example
-  * api.tracing.getTreeName();
-  */
+   * Returns the name for a given tree id. If none is given, the name of the active tree is returned.
+   *
+   * @example
+   * api.tracing.getTreeName();
+   */
   getTreeName(treeId?: number) {
     const tracing = Store.getState().tracing;
     assertSkeleton(tracing);
@@ -271,10 +273,10 @@ class TracingApi {
    */
   async finishAndGetNextTask() {
     const state = Store.getState();
-    const { tracingType, tracingId } = state.tracing;
+    const { tracingType, annotationId } = state.tracing;
     const task = state.task;
-    const finishUrl = `/annotations/${tracingType}/${tracingId}/finish`;
-    const requestTaskUrl = "/user/tasks/request";
+    const finishUrl = `/annotations/${tracingType}/${annotationId}/finish`;
+    const requestTaskUrl = "/api/user/tasks/request";
 
     await Model.save();
     await Request.triggerRequest(finishUrl);
@@ -293,14 +295,14 @@ class TracingApi {
 
       // In some cases the page needs to be reloaded, in others the tracing can be hot-swapped
       if (isDifferentDataset || isDifferentTaskType || isDifferentScript) {
-        app.router.loadURL(newTaskUrl);
+        location.href = newTaskUrl;
       } else {
         await this.restart(annotation.typ, annotation.id, ControlModeEnum.TRACE);
       }
     } catch (err) {
       console.error(err);
       await Utils.sleep(2000);
-      app.router.loadURL("/dashboard");
+      location.href = "/dashboard";
     }
   }
 
@@ -313,13 +315,14 @@ class TracingApi {
    *
    */
   async restart(
-    newTracingType: SkeletonTracingTypeTracingType,
-    newTracingId: string,
+    newTracingType: TracingTypeTracingType,
+    newAnnotationId: string,
     newControlMode: ControlModeType,
   ) {
     Store.dispatch(restartSagaAction());
     UrlManager.reset();
-    await Model.fetch(newTracingType, newTracingId, newControlMode, false);
+    await Model.fetch(newTracingType, newAnnotationId, newControlMode, false);
+    Store.dispatch(discardSaveQueueAction());
     Store.dispatch(wkReadyAction());
     UrlManager.updateUnthrottled(true);
   }
@@ -457,9 +460,9 @@ class TracingApi {
   //  VOLUMETRACING API
 
   /**
-  * Returns the id of the current active cell.
-  * _Volume tracing only!_
-  */
+   * Returns the id of the current active cell.
+   * _Volume tracing only!_
+   */
   getActiveCellId(): ?number {
     const tracing = Store.getState().tracing;
     assertVolume(tracing);
@@ -467,10 +470,10 @@ class TracingApi {
   }
 
   /**
-  * Sets the active cell given a cell id.
-  * If a cell with the given id doesn't exist, it is created.
-  * _Volume tracing only!_
-  */
+   * Sets the active cell given a cell id.
+   * If a cell with the given id doesn't exist, it is created.
+   * _Volume tracing only!_
+   */
   setActiveCell(id: number) {
     assertVolume(Store.getState().tracing);
     assertExists(id, "Cell id is missing.");
@@ -478,10 +481,10 @@ class TracingApi {
   }
 
   /**
-  * Returns the active volume tool which is either
-  * "MOVE", "TRACE" or "BRUSH".
-  * _Volume tracing only!_
-  */
+   * Returns the active volume tool which is either
+   * "MOVE", "TRACE" or "BRUSH".
+   * _Volume tracing only!_
+   */
   getVolumeTool(): ?VolumeToolType {
     const tracing = Store.getState().tracing;
     assertVolume(tracing);
@@ -489,15 +492,17 @@ class TracingApi {
   }
 
   /**
-  * Sets the active volume tool which should be either
-  * "MOVE", "TRACE" or "BRUSH".
-  * _Volume tracing only!_
-  */
+   * Sets the active volume tool which should be either
+   * "MOVE", "TRACE" or "BRUSH".
+   * _Volume tracing only!_
+   */
   setVolumeTool(tool: VolumeToolType) {
     assertVolume(Store.getState().tracing);
     assertExists(tool, "Volume tool is missing.");
     if (VolumeToolEnum[tool] == null) {
-      throw Error(`Volume tool has to be one of: "${Object.keys(VolumeToolEnum).join('", "')}".`);
+      throw new Error(
+        `Volume tool has to be one of: "${Object.keys(VolumeToolEnum).join('", "')}".`,
+      );
     }
     Store.dispatch(setToolAction(tool));
   }
@@ -515,21 +520,21 @@ class DataApi {
 
   __getLayer(layerName: string): Binary {
     const layer = this.model.getBinaryByName(layerName);
-    if (layer === undefined) throw Error(`Layer with name ${layerName} was not found.`);
+    if (layer === undefined) throw new Error(`Layer with name ${layerName} was not found.`);
     return layer;
   }
 
   /**
-  * Returns the names of all available layers of the current tracing.
-  */
+   * Returns the names of all available layers of the current tracing.
+   */
   getLayerNames(): Array<string> {
     return _.map(this.model.binary, "name");
   }
 
   /**
-  * Returns the name of the volume tracing layer.
-  * _Volume tracing only!_
-  */
+   * Returns the name of the volume tracing layer.
+   * _Volume tracing only!_
+   */
   getVolumeTracingLayerName(): string {
     assertVolume(Store.getState().tracing);
     const layer = this.model.getSegmentationBinary();
@@ -538,16 +543,16 @@ class DataApi {
   }
 
   /**
-  * Sets a mapping for a given layer.
-  *
-  * @example
-  * const position = [123, 123, 123];
-  * const segmentId = await api.data.getDataValue("segmentation", position);
-  * const treeId = api.tracing.getActiveTreeId();
-  * const mapping = {[segmentId]: treeId}
-  *
-  * api.setMapping("segmentation", mapping);
-  */
+   * Sets a mapping for a given layer.
+   *
+   * @example
+   * const position = [123, 123, 123];
+   * const segmentId = await api.data.getDataValue("segmentation", position);
+   * const treeId = api.tracing.getActiveTreeId();
+   * const mapping = {[segmentId]: treeId}
+   *
+   * api.setMapping("segmentation", mapping);
+   */
   setMapping(layerName: string, mapping: MappingArray) {
     const layer = this.__getLayer(layerName);
 
@@ -555,8 +560,8 @@ class DataApi {
   }
 
   /**
-  * Returns the bounding box for a given layer name.
-  */
+   * Returns the bounding box for a given layer name.
+   */
   getBoundingBox(layerName: string): [Vector3, Vector3] {
     const layer = this.__getLayer(layerName);
 
@@ -564,18 +569,18 @@ class DataApi {
   }
 
   /**
-  * Returns raw binary data for a given layer, position and zoom level.
-  *
-  * @example // Return the greyscale value for a bucket
-  * const position = [123, 123, 123];
-  * api.data.getDataValue("binary", position).then((greyscaleColor) => ...);
-  *
-  * @example // Using the await keyword instead of the promise syntax
-  * const greyscaleColor = await api.data.getDataValue("binary", position);
-  *
-  * @example // Get the segmentation id for a segementation layer
-  * const segmentId = await api.data.getDataValue("segmentation", position);
-  */
+   * Returns raw binary data for a given layer, position and zoom level.
+   *
+   * @example // Return the greyscale value for a bucket
+   * const position = [123, 123, 123];
+   * api.data.getDataValue("binary", position).then((greyscaleColor) => ...);
+   *
+   * @example // Using the await keyword instead of the promise syntax
+   * const greyscaleColor = await api.data.getDataValue("binary", position);
+   *
+   * @example // Get the segmentation id for a segmentation layer
+   * const segmentId = await api.data.getDataValue("segmentation", position);
+   */
   async getDataValue(layerName: string, position: Vector3, zoomStep: number = 0): Promise<number> {
     const layer = this.__getLayer(layerName);
     const bucketAddress = layer.cube.positionToZoomedAddress(position, zoomStep);
@@ -601,20 +606,21 @@ class DataApi {
   }
 
   /**
-  * Downloads a cuboid of raw data from a data layer. A new window is opened for the download -
-  * if that is not the case, please check your pop-up blocker.
-  *
-  * @example // Download a cuboid (from (0, 0, 0) to (100, 200, 100)) of raw data from the "segmentation" layer.
-  * api.data.downloadRawDataCuboid("segmentation", [0,0,0], [100,200,100]);
-  */
+   * Downloads a cuboid of raw data from a data layer. A new window is opened for the download -
+   * if that is not the case, please check your pop-up blocker.
+   *
+   * @example // Download a cuboid (from (0, 0, 0) to (100, 200, 100)) of raw data from the "segmentation" layer.
+   * api.data.downloadRawDataCuboid("segmentation", [0,0,0], [100,200,100]);
+   */
   downloadRawDataCuboid(layerName: string, topLeft: Vector3, bottomRight: Vector3): Promise<void> {
     const dataset = Store.getState().dataset;
     const layer = this.__getLayer(layerName);
 
-    return layer.layer.doWithToken(token => {
+    return doWithToken(token => {
       const downloadUrl =
-        `${dataset.dataStore
-          .url}/data/datasets/${dataset.name}/layers/${layer.name}/data?resolution=0&` +
+        `${dataset.dataStore.url}/data/datasets/${dataset.name}/layers/${
+          layer.name
+        }/data?resolution=0&` +
         `token=${token}&` +
         `x=${topLeft[0]}&` +
         `y=${topLeft[1]}&` +
@@ -624,16 +630,18 @@ class DataApi {
         `depth=${bottomRight[2] - topLeft[2]}`;
 
       window.open(downloadUrl);
+      // Theoretically the window.open call could fail if the token is expired, but that would be hard to check
+      return Promise.resolve();
     });
   }
 
   /**
-  * Label voxels with the supplied value.
-  * _Volume tracing only!_
-  *
-  * @example // Set the segmentation id for some voxels to 1337
-  * api.data.labelVoxels([[1,1,1], [1,2,1], [2,1,1], [2,2,1]], 1337);
-  */
+   * Label voxels with the supplied value.
+   * _Volume tracing only!_
+   *
+   * @example // Set the segmentation id for some voxels to 1337
+   * api.data.labelVoxels([[1,1,1], [1,2,1], [2,1,1], [2,2,1]], 1337);
+   */
   labelVoxels(voxels: Array<Vector3>, label: number): void {
     assertVolume(Store.getState().tracing);
     const layer = this.model.getSegmentationBinary();
@@ -706,8 +714,6 @@ class UserApi {
     - isosurfaceBBsize
     - isosurfaceResolution
     - newNodeNewTree
-    - inverseX
-    - inverseY
     - keyboardDelay
     - particleSize
     - overrideNodeRadius
@@ -723,12 +729,12 @@ class UserApi {
   }
 
   /**
-  * Set the user's setting for the tracing view.
-  * @param key - Same keys as for getConfiguration()
-  *
-  * @example
-  * api.data.setConfiguration("keyboardDelay", 20);
-  */
+   * Set the user's setting for the tracing view.
+   * @param key - Same keys as for getConfiguration()
+   *
+   * @example
+   * api.data.setConfiguration("keyboardDelay", 20);
+   */
   setConfiguration(key: $Keys<UserConfigurationType>, value) {
     Store.dispatch(updateUserSettingAction(key, value));
   }
@@ -749,11 +755,11 @@ class UtilsApi {
   }
 
   /**
-  * Wait for some milliseconds before continuing the control flow.
-  *
-  * @example // Wait for 5 seconds
-  * await api.utils.sleep(5000);
-  */
+   * Wait for some milliseconds before continuing the control flow.
+   *
+   * @example // Wait for 5 seconds
+   * await api.utils.sleep(5000);
+   */
   sleep(milliseconds: number) {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
   }
@@ -761,7 +767,7 @@ class UtilsApi {
   /**
    * Show a toast to the user. Returns a function which can be used to remove the toast again.
    *
-   * @param {string} type - Can be one of the following: "info", "warning", "success" or "danger"
+   * @param {string} type - Can be one of the following: "info", "warning", "success" or "error"
    * @param {string} message - The message string you want to show
    * @param {number} timeout - Time period in milliseconds after which the toast will be hidden. Time is measured as soon as the user moves the mouse. A value of 0 means that the toast will only hide by clicking on it's X button.
    * @example // Show a toast for 5 seconds
@@ -769,39 +775,40 @@ class UtilsApi {
    * // ... optionally:
    * // removeToast();
    */
-  showToast(type: string, message: string, timeout: number): ?Function {
-    const noop = () => {};
-    return Toast.message(type, message, timeout === 0, timeout).remove || noop;
+  showToast(type: ToastStyleType, message: string, timeout: number): ?Function {
+    Toast.message(type, message, timeout === 0, timeout);
+    return () => Toast.close(message);
   }
 
   /**
-  * Overwrite existing wK actions. wK uses [Redux](http://redux.js.org/) actions to trigger any changes to the application state.
-  * @param {function(store, next, originalAction)} overwriteFunction - Your new implementation for the method in question. Receives the central wK store, a callback to fire the next/original action and the original action.
-  * @param {string} actionName - The name of the action you wish to override:
-  *   - CREATE_NODE
-  *   - DELETE_NODE
-  *   - SET_ACTIVE_NODE
-  *   - SET_NODE_RADIUS
-  *   - CREATE_BRANCHPOINT
-  *   - DELETE_BRANCHPOINT
-  *   - CREATE_TREE
-  *   - DELETE_TREE
-  *   - SET_ACTIVE_TREE
-  *   - SET_TREE_NAME
-  *   - MERGE_TREES
-  *   - SELECT_NEXT_TREE
-  *   - SHUFFLE_TREE_COLOR
-  *   - CREATE_COMMENT
-  *   - DELETE_COMMENT
-  *
-  *
-  * @example
-  * api.utils.registerOverwrite("MERGE_TREES", (store, next, originalAction) => {
-  *   // ... do stuff before the original function...
-  *   next(originalAction);
-  *   // ... do something after the original function ...
-  * });
-  */
+   * Overwrite existing wK actions. wK uses [Redux](http://redux.js.org/) actions to trigger any changes to the application state.
+   * @param {function(store, next, originalAction)} overwriteFunction - Your new implementation for the method in question. Receives the central wK store, a callback to fire the next/original action and the original action.
+   * @param {string} actionName - The name of the action you wish to override:
+   *   - CREATE_NODE
+   *   - DELETE_NODE
+   *   - SET_ACTIVE_NODE
+   *   - SET_NODE_RADIUS
+   *   - CREATE_BRANCHPOINT
+   *   - DELETE_BRANCHPOINT
+   *   - CREATE_TREE
+   *   - DELETE_TREE
+   *   - SET_ACTIVE_TREE
+   *   - SET_TREE_NAME
+   *   - MERGE_TREES
+   *   - SELECT_NEXT_TREE
+   *   - SHUFFLE_TREE_COLOR
+   *   - SHUFFLE_ALL_TREE_COLORS
+   *   - CREATE_COMMENT
+   *   - DELETE_COMMENT
+   *
+   *
+   * @example
+   * api.utils.registerOverwrite("MERGE_TREES", (store, next, originalAction) => {
+   *   // ... do stuff before the original function...
+   *   next(originalAction);
+   *   // ... do something after the original function ...
+   * });
+   */
   registerOverwrite<S, A>(
     actionName: string,
     overwriteFunction: (store: S, next: (action: A) => void, originalAction: A) => void,
@@ -810,8 +817,8 @@ class UtilsApi {
   }
 
   /**
-  * Sets a custom handler function for a keyboard shortcut.
-  */
+   * Sets a custom handler function for a keyboard shortcut.
+   */
   registerKeyHandler(key: string, handler: () => void): Handler {
     const keyboard = new InputKeyboardNoLoop({ [key]: handler });
     return { unregister: keyboard.destroy.bind(keyboard) };

@@ -9,7 +9,13 @@ const initialState = {
     scale: [1, 1, 2],
     dataLayers: [
       {
-        resolutions: [1, 2, 4, 8, 16],
+        resolutions: [
+          { resolution: 1, scale: [1, 1, 1] },
+          { resolution: 16, scale: [16, 16, 16] },
+          { resolution: 2, scale: [2, 2, 2] },
+          { resolution: 4, scale: [4, 4, 4] },
+          { resolution: 8, scale: [8, 8, 8] },
+        ],
       },
     ],
   },
@@ -73,25 +79,40 @@ test("Flycam Accessors should calculate the texture scaling factor (2/2)", t => 
 
 test("Flycam Accessors should calculate the viewport bounding box", t => {
   const viewportBoundingBox = accessors.getViewportBoundingBox(initialState);
-  t.deepEqual(viewportBoundingBox.min, [973.4, 2968.4, 393.2]);
-  t.deepEqual(viewportBoundingBox.max, [1472.6, 3467.6, 642.8]);
+  t.deepEqual(viewportBoundingBox.min, [978.6, 2973.6, 395.8]);
+  t.deepEqual(viewportBoundingBox.max, [1467.4, 3462.4, 640.2]);
 });
 
 test("Flycam Accessors should calculate the texture buffer", t => {
   const textureBuffer = accessors.calculateTextureBuffer(initialState);
-  t.deepEqual(textureBuffer[OrthoViews.PLANE_XY], [262.4, 262.4]);
-  t.deepEqual(textureBuffer[OrthoViews.PLANE_XZ], [262.4, 387.2]);
-  t.deepEqual(textureBuffer[OrthoViews.PLANE_YZ], [387.2, 262.4]);
+  t.deepEqual(textureBuffer[OrthoViews.PLANE_XY], [267.6, 267.6]);
+  t.deepEqual(textureBuffer[OrthoViews.PLANE_XZ], [267.6, 389.8]);
+  t.deepEqual(textureBuffer[OrthoViews.PLANE_YZ], [389.8, 267.6]);
 });
 
 test("Flycam Accessors should calculate the offsets", t => {
-  t.deepEqual(accessors.getOffsets(initialState, OrthoViews.PLANE_XY), [134.7, 140.2]);
-  t.deepEqual(accessors.getOffsets(initialState, OrthoViews.PLANE_XZ), [134.7, 196.6]);
-  t.deepEqual(accessors.getOffsets(initialState, OrthoViews.PLANE_YZ), [196.6, 140.2]);
+  t.deepEqual(accessors.getOffsets(initialState, OrthoViews.PLANE_XY), [137.3, 142.8]);
+  t.deepEqual(accessors.getOffsets(initialState, OrthoViews.PLANE_XZ), [137.3, 197.9]);
+  t.deepEqual(accessors.getOffsets(initialState, OrthoViews.PLANE_YZ), [197.9, 142.8]);
 });
 
 test("Flycam Accessors should calculate the area", t => {
-  t.deepEqual(accessors.getArea(initialState, OrthoViews.PLANE_XY), [134.7, 140.2, 384.3, 389.8]);
-  t.deepEqual(accessors.getArea(initialState, OrthoViews.PLANE_XZ), [134.7, 196.6, 384.3, 321.4]);
-  t.deepEqual(accessors.getArea(initialState, OrthoViews.PLANE_YZ), [196.6, 140.2, 321.4, 389.8]);
+  t.deepEqual(accessors.getArea(initialState, OrthoViews.PLANE_XY), [
+    137.3,
+    142.8,
+    381.70000000000005,
+    387.20000000000005,
+  ]);
+  t.deepEqual(accessors.getArea(initialState, OrthoViews.PLANE_XZ), [
+    137.3,
+    197.9,
+    381.70000000000005,
+    320.1,
+  ]);
+  t.deepEqual(accessors.getArea(initialState, OrthoViews.PLANE_YZ), [
+    197.9,
+    142.8,
+    320.1,
+    387.20000000000005,
+  ]);
 });

@@ -1,35 +1,29 @@
 package models.user
 
-import play.api.Play.current
-import com.scalableminds.util.security.SCrypt._
-import reactivemongo.api.commands.WriteResult
-
-//import scala.collection.mutable.Stack
-//import play.api.libs.json.{Json, JsValue}
-import play.api.libs.json.Json._
-import models.basics._
-import models.team._
-import models.configuration.{UserConfiguration, DataSetConfiguration}
+import com.mohiva.play.silhouette.api.util.PasswordInfo
+import com.mohiva.play.silhouette.api.{Identity, LoginInfo}
+import com.mohiva.play.silhouette.impl.providers.CredentialsProvider
+import com.scalableminds.util.reactivemongo.AccessRestrictions.{AllowIf, DenyEveryone}
 import com.scalableminds.util.reactivemongo._
-//import scala.concurrent.Future
-import play.api.libs.concurrent.Execution.Implicits._
-import reactivemongo.bson.BSONObjectID
-import reactivemongo.play.json.BSONFormats._
-import reactivemongo.api.indexes.{IndexType, Index}
-import reactivemongo.api.indexes.Index
-import play.api.libs.json._
-import play.api.libs.functional.syntax._
-import reactivemongo.core.commands.LastError
-import com.scalableminds.util.reactivemongo.AccessRestrictions.{DenyEveryone, AllowIf}
 import com.scalableminds.util.tools.Fox
-import com.typesafe.scalalogging.LazyLogging
+import models.basics._
+import models.configuration.{DataSetConfiguration, UserConfiguration}
+import models.team._
+import play.api.libs.concurrent.Execution.Implicits._
+import play.api.libs.functional.syntax._
+import play.api.libs.json.Json._
+import play.api.libs.json._
+import reactivemongo.api.indexes.{Index, IndexType}
+import reactivemongo.bson.BSONObjectID
+import reactivemongo.play.json._
+
+import scala.concurrent.Future
 
 case class User(
                  email: String,
                  firstName: String,
                  lastName: String,
                  isActive: Boolean = false,
-                 pwdHash: String = "",
                  md5hash: String = "",
                  teams: List[TeamMembership],
                  userConfiguration: UserConfiguration = UserConfiguration.default,
@@ -38,11 +32,9 @@ case class User(
                  lastActivity: Long = System.currentTimeMillis,
                  _isAnonymous: Option[Boolean] = None,
                  _isSuperUser: Option[Boolean] = None,
-                 _id: BSONObjectID = BSONObjectID.generate) extends DBAccessContextPayload {
-
-  val dao = User
-
-  //lazy val teamTrees = TeamTreeDAO.findAllTeams(_groups)(GlobalAccessContext)
+                 _id: BSONObjectID = BSONObjectID.generate,
+                 loginInfo: LoginInfo,
+                 passwordInfo: PasswordInfo) extends DBAccessContextPayload with Identity {
 
   def teamsWithRole(role: Role) = teams.filter(_.role == role)
 
@@ -68,6 +60,8 @@ case class User(
   def roleInTeam(team: String) = teams.find(_.team == team).map(_.role)
 
   def isAdminOf(team: String) = adminTeamNames.contains(team)
+
+  def isAdmin = adminTeams.nonEmpty
 
   override def toString = email
 
@@ -110,11 +104,12 @@ case class User(
   def isAdminOf(user: User): Boolean ={
     user.teamNames.intersect(this.adminTeamNames).nonEmpty
   }
-
 }
 
 object User {
-  private[user] val userFormat = Json.format[User]
+
+  implicit val passwordInfoJsonFormat = Json.format[PasswordInfo]
+  implicit val userFormat = Json.format[User]
 
   def userPublicWrites(requestingUser: User): Writes[User] =
     ((__ \ "id").write[String] and
@@ -139,7 +134,7 @@ object User {
       (__ \ "teams").write[List[TeamMembership]])( u =>
       (u.id, u.email, u.firstName, u.lastName, u.isAnonymous, u.teams))
 
-  val defaultDeactivatedUser = User("","","", teams = Nil)
+  val defaultDeactivatedUser = User("","","", teams = Nil, loginInfo = LoginInfo(CredentialsProvider.ID, ""), passwordInfo = PasswordInfo("SCrypt", ""))
 }
 
 object UserDAO extends SecuredBaseDAO[User] {
@@ -147,6 +142,7 @@ object UserDAO extends SecuredBaseDAO[User] {
   val collectionName = "users"
 
   implicit val formatter = User.userFormat
+  implicit val passwordInfoFormatter = User.passwordInfoJsonFormat
 
   underlying.indexesManager.ensure(Index(Seq("email" -> IndexType.Ascending)))
 
@@ -178,20 +174,13 @@ object UserDAO extends SecuredBaseDAO[User] {
 
   def findOneByEmail(email: String)(implicit ctx: DBAccessContext) = findOne("email", email)
 
-  def findByTeams(teams: List[String], includeAnonymous: Boolean)(implicit ctx: DBAccessContext) = withExceptionCatcher {
+  def findByTeams(teams: List[String], includeAnonymous: Boolean, includeInactive: Boolean = true)(implicit ctx: DBAccessContext) = withExceptionCatcher {
     val anonymousFilter = if(includeAnonymous) Json.obj() else Json.obj("_isAnonymous" -> Json.obj("$ne" -> true))
-    find(Json.obj("$or" -> teams.map(team => Json.obj("teams.team" -> team))) ++ anonymousFilter).cursor[User]().collect[List]()
+    val inactiveFilter = if (includeInactive) Json.obj() else Json.obj("isActive" -> true)
+    find(Json.obj("$or" -> teams.map(team => Json.obj("teams.team" -> team))) ++ anonymousFilter ++ inactiveFilter).cursor[User]().collect[List]()
   }
 
   def findByIdQ(id: BSONObjectID) = Json.obj("_id" -> id)
-
-  def authRemote(email: String, loginType: String)(implicit ctx: DBAccessContext) =
-    findOne(Json.obj("email" -> email, "loginType" -> loginType))
-
-  def auth(email: String, password: String)(implicit ctx: DBAccessContext): Fox[User] =
-    findOneByEmail(email).filter { user =>
-      verifyPassword(password, user.pwdHash)
-    }
 
   def update(_user: BSONObjectID, firstName: String, lastName: String, activated: Boolean, teams: List[TeamMembership], experiences: Map[String, Int])(implicit ctx: DBAccessContext): Fox[User] =
     findAndModify(findByIdQ(_user), Json.obj("$set" -> Json.obj(
@@ -220,8 +209,14 @@ object UserDAO extends SecuredBaseDAO[User] {
     update(findByIdQ(_user), Json.obj("$set" -> Json.obj("teams" -> teams)))
   }
 
-  def changePassword(_user: BSONObjectID, pswd: String)(implicit ctx: DBAccessContext) = {
-    update(findByIdQ(_user), Json.obj("$set" -> Json.obj("pwdHash" -> hashPassword(pswd))))
+  def changePasswordInfo(_user: BSONObjectID, pswdInfo: PasswordInfo)(implicit ctx: DBAccessContext) = {
+    update(findByIdQ(_user), Json.obj("$set" -> Json.obj("passwordInfo" -> pswdInfo)))
+  }
+
+  def findAllByIds(ids: List[BSONObjectID])(implicit ctx: DBAccessContext) = {
+    find(Json.obj(
+      "_id" -> Json.obj("$in" -> Json.toJson(ids))
+    )).cursor[User]().collect[List]()
   }
 
   def findAllNonAnonymous(implicit ctx: DBAccessContext) = {
@@ -238,4 +233,11 @@ object UserDAO extends SecuredBaseDAO[User] {
       multi = true
     )
   }
+
+  def find(loginInfo:LoginInfo)(implicit ctx: DBAccessContext):Future[Option[User]] =
+    findOneByEmail(loginInfo.providerKey).futureBox.map(_.toOption)
+
+  def save(user:User)(implicit ctx: DBAccessContext) =
+    insert(user)
+
 }

@@ -3,16 +3,24 @@
 
 import _ from "lodash";
 import * as React from "react";
+import { Link, withRouter } from "react-router-dom";
 import { Table, Tag, Icon, Spin, Button, Input } from "antd";
-import Request from "libs/request";
 import TeamRoleModalView from "admin/views/user/team_role_modal_view";
 import ExperienceModalView from "admin/views/user/experience_modal_view";
 import TemplateHelpers from "libs/template_helpers";
 import Utils from "libs/utils";
-import type { APIUserType, APITeamRoleType } from "admin/api_flow_types";
+import { getEditableUsers, updateUser } from "admin/admin_rest_api";
+import Persistence from "libs/persistence";
+import { PropTypes } from "prop-types";
+import type { APIUserType, APITeamRoleType, ExperienceMapType } from "admin/api_flow_types";
+import type { RouterHistory } from "react-router-dom";
 
 const { Column } = Table;
 const { Search } = Input;
+
+type Props = {
+  history: RouterHistory,
+};
 
 type State = {
   isLoading: boolean,
@@ -24,7 +32,15 @@ type State = {
   searchQuery: string,
 };
 
-class UserListView extends React.PureComponent<{}, State> {
+const persistence: Persistence<State> = new Persistence(
+  {
+    searchQuery: PropTypes.string,
+    activationFilter: PropTypes.arrayOf(PropTypes.string),
+  },
+  "userList",
+);
+
+class UserListView extends React.PureComponent<Props, State> {
   state = {
     isLoading: true,
     users: [],
@@ -35,13 +51,20 @@ class UserListView extends React.PureComponent<{}, State> {
     searchQuery: "",
   };
 
+  componentWillMount() {
+    this.setState(persistence.load(this.props.history));
+  }
+
   componentDidMount() {
     this.fetchData();
   }
 
+  componentWillUpdate(nextProps, nextState) {
+    persistence.persist(this.props.history, nextState);
+  }
+
   async fetchData(): Promise<void> {
-    const url = "/api/users?isEditable=true";
-    const users = await Request.receiveJSON(url);
+    const users = await getEditableUsers();
 
     this.setState({
       isLoading: false,
@@ -54,11 +77,7 @@ class UserListView extends React.PureComponent<{}, State> {
       if (selectedUser.id === user.id) {
         const newUser = Object.assign({}, user, { isActive });
 
-        const url = `/api/users/${user.id}`;
-        Request.sendJSONReceiveJSON(url, {
-          data: newUser,
-        });
-
+        updateUser(newUser);
         return newUser;
       }
 
@@ -105,14 +124,6 @@ class UserListView extends React.PureComponent<{}, State> {
       }),
     };
 
-    if (this.state.isLoading) {
-      return (
-        <div className="text-center">
-          <Spin size="large" />
-        </div>
-      );
-    }
-
     const activationFilterWarning = this.state.activationFilter.includes("true") ? (
       <Tag closable onClose={this.handleDismissActivationFilter} color="blue">
         Show Active User Only
@@ -122,7 +133,7 @@ class UserListView extends React.PureComponent<{}, State> {
     const marginRight = { marginRight: 20 };
 
     return (
-      <div className="user-administration-table container wide test-UserListView">
+      <div className="container test-UserListView">
         <h3>Users</h3>
 
         {hasRowsSelected ? (
@@ -149,115 +160,118 @@ class UserListView extends React.PureComponent<{}, State> {
           style={{ width: 200, float: "right" }}
           onPressEnter={this.handleSearch}
           onChange={this.handleSearch}
+          value={this.state.searchQuery}
         />
 
-        <Table
-          dataSource={Utils.filterWithSearchQueryOR(
-            this.state.users,
-            ["firstName", "lastName", "email", "teams", "experiences"],
-            this.state.searchQuery,
-          )}
-          rowKey="id"
-          rowSelection={rowSelection}
-          pagination={{
-            defaultPageSize: 50,
-          }}
-          style={{ marginTop: 30, marginBotton: 30 }}
-          onChange={(pagination, filters) =>
-            this.setState({
-              activationFilter: filters.isActive,
-            })}
-        >
-          <Column
-            title="Last name"
-            dataIndex="lastName"
-            key="lastName"
-            sorter={Utils.localeCompareBy("lastName")}
-          />
-          <Column
-            title="First name"
-            dataIndex="firstName"
-            key="firstName"
-            sorter={Utils.localeCompareBy("firstName")}
-          />
-          <Column
-            title="Email"
-            dataIndex="email"
-            key="email"
-            sorter={Utils.localeCompareBy("email")}
-          />
-          <Column
-            title="Experiences"
-            dataIndex="experiences"
-            key="experiences"
-            width={300}
-            render={(experiences, user: APIUserType) =>
-              _.map(experiences, (value, domain) => (
-                <Tag key={`experience_${user.id}_${domain}`}>
-                  {domain} : {value}
-                </Tag>
-              ))}
-          />
-          <Column
-            title="Teams - Role"
-            dataIndex="teams"
-            key="teams_"
-            width={300}
-            render={(teams: Array<APITeamRoleType>, user: APIUserType) =>
-              teams.map(team => (
-                <Tag
-                  key={`team_role_${user.id}_${team.team}`}
-                  color={TemplateHelpers.stringToColor(team.role.name)}
-                >
-                  {team.team}: {team.role.name}
-                </Tag>
-              ))}
-          />
-          <Column
-            title="Status"
-            dataIndex="isActive"
-            key="isActive"
-            filters={[
-              { text: "Activated", value: "true" },
-              { text: "Deactivated", value: "false" },
-            ]}
-            filtered
-            filteredValue={this.state.activationFilter}
-            onFilter={(value: boolean, user: APIUserType) => user.isActive.toString() === value}
-            render={isActive => {
-              const icon = isActive ? "check-circle-o" : "close-circle-o";
-              return <Icon type={icon} style={{ fontSize: 20 }} />;
-            }}
-          />
-          <Column
-            title="Actions"
-            key="actions"
-            render={(__, user: APIUserType) => (
-              <span>
-                <a href={`/users/${user.id}/details`}>
-                  <Icon type="user" />Show Tracings
-                </a>
-                <br />
-                <a
-                  href={`/api/users/${user.id}/annotations/download`}
-                  title="download all finished tracings"
-                >
-                  <Icon type="download" />Download
-                </a>
-                <br />
-                {user.isActive ? (
-                  <a href="#" onClick={() => this.deactivateUser(user)}>
-                    <Icon type="user-delete" />Deactivate User
-                  </a>
-                ) : (
-                  <a href="#" onClick={() => this.activateUser(user)}>
-                    <Icon type="user-add" />Activate User
-                  </a>
-                )}
-              </span>
+        <Spin size="large" spinning={this.state.isLoading}>
+          <Table
+            dataSource={Utils.filterWithSearchQueryOR(
+              this.state.users,
+              ["firstName", "lastName", "email", "teams", "experiences"],
+              this.state.searchQuery,
             )}
-          />
-        </Table>
+            rowKey="id"
+            rowSelection={rowSelection}
+            pagination={{
+              defaultPageSize: 50,
+            }}
+            style={{ marginTop: 30, marginBotton: 30 }}
+            onChange={(pagination, filters) =>
+              this.setState({
+                activationFilter: filters.isActive,
+              })
+            }
+          >
+            <Column
+              title="Last Name"
+              dataIndex="lastName"
+              key="lastName"
+              width={130}
+              sorter={Utils.localeCompareBy("lastName")}
+            />
+            <Column
+              title="First Name"
+              dataIndex="firstName"
+              key="firstName"
+              width={130}
+              sorter={Utils.localeCompareBy("firstName")}
+            />
+            <Column
+              title="Email"
+              dataIndex="email"
+              key="email"
+              sorter={Utils.localeCompareBy("email")}
+            />
+            <Column
+              title="Experiences"
+              dataIndex="experiences"
+              key="experiences"
+              width={300}
+              render={(experiences: ExperienceMapType, user: APIUserType) =>
+                _.map(experiences, (value, domain) => (
+                  <Tag key={`experience_${user.id}_${domain}`}>
+                    {domain} : {value}
+                  </Tag>
+                ))
+              }
+            />
+            <Column
+              title="Teams - Role"
+              dataIndex="teams"
+              key="teams_"
+              width={300}
+              render={(teams: Array<APITeamRoleType>, user: APIUserType) =>
+                teams.map(team => (
+                  <Tag
+                    key={`team_role_${user.id}_${team.team}`}
+                    color={TemplateHelpers.stringToColor(team.role.name)}
+                  >
+                    {team.team}: {team.role.name}
+                  </Tag>
+                ))
+              }
+            />
+            <Column
+              title="Status"
+              dataIndex="isActive"
+              key="isActive"
+              width={110}
+              filters={[
+                { text: "Activated", value: "true" },
+                { text: "Deactivated", value: "false" },
+              ]}
+              filtered
+              filteredValue={this.state.activationFilter}
+              onFilter={(value: boolean, user: APIUserType) => user.isActive.toString() === value}
+              render={isActive => {
+                const icon = isActive ? "check-circle-o" : "close-circle-o";
+                return <Icon type={icon} style={{ fontSize: 20 }} />;
+              }}
+            />
+            <Column
+              title="Actions"
+              key="actions"
+              width={160}
+              render={(__, user: APIUserType) => (
+                <span>
+                  <Link to={`/users/${user.id}/details`}>
+                    <Icon type="user" />Show Tracings
+                  </Link>
+                  <br />
+                  {user.isActive ? (
+                    <a href="#" onClick={() => this.deactivateUser(user)}>
+                      <Icon type="user-delete" />Deactivate User
+                    </a>
+                  ) : (
+                    <a href="#" onClick={() => this.activateUser(user)}>
+                      <Icon type="user-add" />Activate User
+                    </a>
+                  )}
+                </span>
+              )}
+            />
+          </Table>
+        </Spin>
         <ExperienceModalView
           visible={this.state.isExperienceModalVisible}
           selectedUserIds={this.state.selectedUserIds}
@@ -277,4 +291,4 @@ class UserListView extends React.PureComponent<{}, State> {
   }
 }
 
-export default UserListView;
+export default withRouter(UserListView);

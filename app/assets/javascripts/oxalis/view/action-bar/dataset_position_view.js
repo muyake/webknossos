@@ -11,7 +11,7 @@ import Store from "oxalis/store";
 import { setPositionAction, setRotationAction } from "oxalis/model/actions/flycam_actions";
 import { getPosition, getRotation } from "oxalis/model/accessors/flycam_accessor";
 import { Input, Tooltip } from "antd";
-import Vector3Input from "libs/vector3_input";
+import { Vector3Input } from "libs/vector_input";
 import ButtonComponent from "oxalis/view/components/button_component";
 import message from "messages";
 
@@ -50,14 +50,12 @@ class DatasetPositionView extends PureComponent<Props> {
       <div>
         <Tooltip title={message["tracing.copy_position"]} placement="bottomLeft">
           <div>
-            <Input.Group compact size="large">
-              <ButtonComponent onClick={this.copyPositionToClipboard} size="large">
-                Position
-              </ButtonComponent>
+            <Input.Group compact>
+              <ButtonComponent onClick={this.copyPositionToClipboard}>Position</ButtonComponent>
               <Vector3Input
                 value={position}
                 onChange={this.handleChangePosition}
-                style={{ width: "120px" }}
+                style={{ maxWidth: "160px", textAlign: "center" }}
               />
             </Input.Group>
           </div>
@@ -65,10 +63,8 @@ class DatasetPositionView extends PureComponent<Props> {
         {isArbitraryMode ? (
           <Tooltip title={message["tracing.copy_rotation"]} placement="bottomLeft">
             <div style={{ marginLeft: 10 }}>
-              <Input.Group compact size="large">
-                <ButtonComponent onClick={this.copyRotationToClipboard} size="large">
-                  Rotation
-                </ButtonComponent>
+              <Input.Group compact>
+                <ButtonComponent onClick={this.copyRotationToClipboard}>Rotation</ButtonComponent>
                 <Vector3Input
                   value={rotation}
                   onChange={this.handleChangeRotation}
@@ -83,7 +79,7 @@ class DatasetPositionView extends PureComponent<Props> {
   }
 }
 
-function mapStateToProps(state: OxalisState) {
+function mapStateToProps(state: OxalisState): Props {
   return {
     flycam: state.flycam,
     viewMode: state.temporaryConfiguration.viewMode,

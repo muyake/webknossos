@@ -8,8 +8,9 @@ import { connect } from "react-redux";
 import classNames from "classnames";
 import Comment from "oxalis/view/right-menu/comment_tab/comment";
 import Utils from "libs/utils";
-import type { OxalisState, TreeType, SkeletonTracingType } from "oxalis/store";
 import { enforceSkeletonTracing } from "oxalis/model/accessors/skeletontracing_accessor";
+import { scrollIntoViewIfNeeded } from "scroll-into-view-if-needed";
+import type { OxalisState, TreeType, SkeletonTracingType } from "oxalis/store";
 
 type OwnProps = {
   tree: TreeType,
@@ -25,9 +26,30 @@ type State = {
 };
 
 class TreeCommentList extends React.PureComponent<TreeCommentListProps, State> {
+  treeDomElement: ?HTMLLIElement;
   state = {
     collapsed: false,
   };
+
+  componentDidUpdate() {
+    this.ensureVisible();
+  }
+
+  activeNodeHasComment(): boolean {
+    return this.props.tree.comments.some(
+      comment => comment.nodeId === this.props.skeletonTracing.activeNodeId,
+    );
+  }
+
+  ensureVisible() {
+    // Only scroll to this tree if this is the active tree and there is no active comment to scroll to
+    if (
+      this.props.tree.treeId === this.props.skeletonTracing.activeTreeId &&
+      !this.activeNodeHasComment()
+    ) {
+      scrollIntoViewIfNeeded(this.treeDomElement, { centerIfNeeded: true });
+    }
+  }
 
   handleToggleComment = () => {
     this.setState({ collapsed: !this.state.collapsed });
@@ -43,10 +65,10 @@ class TreeCommentList extends React.PureComponent<TreeCommentListProps, State> {
           .sort(Utils.localeCompareBy("content", this.props.isSortedAscending))
           .map(comment => (
             <Comment
-              key={comment.node}
+              key={comment.nodeId}
               data={comment}
               treeId={this.props.tree.treeId}
-              isActive={comment.node === this.props.skeletonTracing.activeNodeId}
+              isActive={comment.nodeId === this.props.skeletonTracing.activeNodeId}
             />
           ))
       : null;
@@ -60,8 +82,13 @@ class TreeCommentList extends React.PureComponent<TreeCommentListProps, State> {
     // one tree and its comments
     return (
       <div>
-        <li className={liClassName}>
-          <a href="#toggle-comment" onClick={this.handleToggleComment}>
+        <li
+          className={liClassName}
+          ref={ref => {
+            this.treeDomElement = ref;
+          }}
+        >
+          <a onClick={this.handleToggleComment}>
             <i className={iClassName} />
           </a>
           {this.props.tree.treeId} - {this.props.tree.name}

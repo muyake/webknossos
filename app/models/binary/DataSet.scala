@@ -1,7 +1,7 @@
 package models.binary
 
-import com.scalableminds.braingames.binary.models.datasource.inbox.{InboxDataSourceLike => InboxDataSource}
-import com.scalableminds.braingames.binary.models.datasource.{DataSourceLike => DataSource}
+import com.scalableminds.webknossos.datastore.models.datasource.inbox.{InboxDataSourceLike => InboxDataSource}
+import com.scalableminds.webknossos.datastore.models.datasource.{DataSourceLike => DataSource}
 import com.scalableminds.util.geometry.{Point3D, Vector3D}
 import com.scalableminds.util.reactivemongo.AccessRestrictions.AllowIf
 import com.scalableminds.util.reactivemongo.{DBAccessContext, DefaultAccessDefinitions}
@@ -34,11 +34,8 @@ case class DataSet(
   def isEditableBy(user: Option[User]) =
     user.exists(_.isAdminOf(owningTeam))
 
-  def defaultStart =
-    dataSource.toUsable.map(_.boundingBox.center).getOrElse(Point3D(0, 0, 0))
-
-  def defaultRotation =
-    Vector3D(0, 0, 0)
+  lazy val dataStore: DataStoreHandlingStrategy =
+    DataStoreHandlingStrategy(this)
 }
 
 object DataSet {

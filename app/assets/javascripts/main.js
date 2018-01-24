@@ -1,65 +1,44 @@
 /**
  * main.js
- * @flow weak
+ * @flow
  */
 
-import $ from "jquery";
-import Backbone from "backbone";
 import ErrorHandling from "libs/error_handling";
-import Request from "libs/request";
-import app from "app";
-import { getWebGLReport } from "libs/webgl_stats";
 
-import "bootstrap";
-import "jasny-bootstrap";
+import React from "react";
+import ReactRouter from "react_router";
+import ReactDOM from "react-dom";
+import { Provider } from "react-redux";
+import Store from "oxalis/throttled_store";
+import { setActiveUserAction } from "oxalis/model/actions/user_actions";
+
 import "whatwg-fetch";
 import "es6-promise";
-import "libs/core_ext";
-import "backbone.marionette";
 
+import { getActiveUser } from "admin/admin_rest_api";
+
+// $FlowFixMe: CSS/LESS imports are a special WebPack feature
 import "../stylesheets/main.less";
-import Router from "./router";
 
-ErrorHandling.initialize({ throwAssertions: false, sendLocalErrors: false });
+document.addEventListener("DOMContentLoaded", async () => {
+  ErrorHandling.initialize({ throwAssertions: false, sendLocalErrors: false });
 
-app.on("start", () => {
-  app.router = new Router();
-  return Backbone.history.start({ pushState: true });
-});
-
-app.on("start", async () => {
+  // try retreive the currently active user if logged in
   try {
-    const user = await Request.receiveJSON("/api/user", { doNotCatch: true });
-    app.currentUser = user;
+    const user = await getActiveUser({ doNotCatch: true });
+    Store.dispatch(setActiveUserAction(user));
     ErrorHandling.setCurrentUser(user);
   } catch (e) {
     // pass
   }
-});
 
-app.on("start", () => {
-  // set app.vent to the global radio channel
-  app.vent = Backbone.Radio.channel("global");
-});
-
-app.on("start", () => {
-  // send WebGL analytics once per session
-  if (!window.sessionStorage.getItem("hasSentWebGLAnalytics")) {
-    try {
-      const webGLStats = getWebGLReport();
-      Request.sendJSONReceiveJSON("/api/analytics/webgl", {
-        data: webGLStats,
-      });
-      window.sessionStorage.setItem("hasSentWebGLAnalytics", true);
-    } catch (error) {
-      ErrorHandling.notify(error);
-    }
+  const containerElement = document.getElementById("main-container");
+  if (containerElement) {
+    ReactDOM.render(
+      <Provider store={Store}>
+        <ReactRouter />
+      </Provider>,
+      containerElement,
+    );
   }
-});
-
-$(() => {
-  // show the bootstrap flash modal on load
-  $("#flashModal").modal("show");
-
-  return app.start();
 });

@@ -117,7 +117,7 @@ class Skeleton {
     this.pickingNode.remove(...this.pickingNode.children);
 
     const trees = skeletonTracing.trees;
-    const nodeCount = _.sum(_.map(trees, tree => _.size(tree.nodes)));
+    const nodeCount = _.sum(_.map(trees, tree => tree.nodes.size()));
     const edgeCount = _.sum(_.map(trees, tree => _.size(tree.edges)));
 
     this.treeColorTexture = new THREE.DataTexture(
@@ -276,18 +276,24 @@ class Skeleton {
     const diff = cachedDiffTrees(this.prevTracing.trees, skeletonTracing.trees);
 
     for (const update of diff) {
-      switch (update.action) {
+      switch (update.name) {
         case "createNode": {
-          this.createNode(update.value.treeId, update.value);
+          const { treeId, id: nodeId } = update.value;
+          this.createNode(treeId, update.value);
+          const tree = skeletonTracing.trees[treeId];
+          const isBranchpoint = tree.branchPoints.find(bp => bp.nodeId === nodeId) != null;
+          if (isBranchpoint) {
+            this.updateNodeType(treeId, nodeId, NodeTypes.BRANCH_POINT);
+          }
           break;
         }
         case "deleteNode":
-          this.deleteNode(update.value.treeId, update.value.id);
+          this.deleteNode(update.value.treeId, update.value.nodeId);
           break;
         case "createEdge": {
           const tree = skeletonTracing.trees[update.value.treeId];
-          const source = tree.nodes[update.value.source];
-          const target = tree.nodes[update.value.target];
+          const source = tree.nodes.get(update.value.source);
+          const target = tree.nodes.get(update.value.target);
           this.createEdge(tree.treeId, source, target);
           break;
         }
@@ -311,8 +317,8 @@ class Skeleton {
           const treeId = update.value.id;
           const tree = skeletonTracing.trees[treeId];
           const prevTree = this.prevTracing.trees[treeId];
-          const oldBranchPoints = prevTree.branchPoints.map(branchPoint => branchPoint.id);
-          const newBranchPoints = tree.branchPoints.map(branchPoint => branchPoint.id);
+          const oldBranchPoints = prevTree.branchPoints.map(branchPoint => branchPoint.nodeId);
+          const newBranchPoints = tree.branchPoints.map(branchPoint => branchPoint.nodeId);
           const { onlyA: deletedBranchPoints, onlyB: createdBranchPoints } = Utils.diffArrays(
             oldBranchPoints,
             newBranchPoints,
@@ -383,14 +389,16 @@ class Skeleton {
     return this.rootNode;
   }
 
-  startPicking(): THREE.Object3D {
+  startPicking(isTouch: boolean): THREE.Object3D {
     this.pickingNode.matrixAutoUpdate = false;
     this.pickingNode.matrix.copy(this.rootNode.matrixWorld);
+    this.nodes.material.uniforms.isTouch.value = isTouch ? 1 : 0;
     this.nodes.material.uniforms.isPicking.value = 1;
     return this.pickingNode;
   }
 
   stopPicking(): void {
+    this.nodes.material.uniforms.isTouch.value = 0;
     this.nodes.material.uniforms.isPicking.value = 0;
   }
 
@@ -409,15 +417,15 @@ class Skeleton {
    * Usually called only once initially.
    */
   createTree(tree: TreeType) {
-    for (const node of _.values(tree.nodes)) {
+    for (const node of tree.nodes.values()) {
       this.createNode(tree.treeId, node);
     }
     for (const branchpoint of tree.branchPoints) {
-      this.updateNodeType(tree.treeId, branchpoint.id, NodeTypes.BRANCH_POINT);
+      this.updateNodeType(tree.treeId, branchpoint.nodeId, NodeTypes.BRANCH_POINT);
     }
     for (const edge of tree.edges) {
-      const source = tree.nodes[edge.source];
-      const target = tree.nodes[edge.target];
+      const source = tree.nodes.get(edge.source);
+      const target = tree.nodes.get(edge.target);
       this.createEdge(tree.treeId, source, target);
     }
 
@@ -536,7 +544,7 @@ class Skeleton {
    * Calculates a resizing factor for the active node's radius every time the
    * active node id changes. In essence this animates the node's radius to grow/shrink a little.
    */
-  animateNodeScale(from: number, to: number) {
+  animateNodeScale(from: number, to: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const setScaleFactor = scale => {
         this.nodes.material.uniforms.activeNodeScaleFactor.value = scale;

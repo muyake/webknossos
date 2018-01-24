@@ -1,30 +1,31 @@
 package models.user
 
+import com.mohiva.play.silhouette.api.LoginInfo
+import com.mohiva.play.silhouette.api.services.IdentityService
+import com.mohiva.play.silhouette.api.util.PasswordInfo
+import com.mohiva.play.silhouette.impl.providers.CredentialsProvider
+import com.scalableminds.util.mail.Send
+import com.scalableminds.util.reactivemongo.{DBAccessContext, GlobalAccessContext}
+import com.scalableminds.util.security.SCrypt
+import com.scalableminds.util.security.SCrypt._
+import com.scalableminds.util.tools.{Fox, FoxImplicits}
+import models.annotation.AnnotationService
+import models.configuration.{DataSetConfiguration, UserConfiguration}
+import models.team._
+import oxalis.mail.DefaultMails
+import oxalis.user.UserCache
 import play.api.Play
 import play.api.Play.current
 import play.api.libs.concurrent.Akka
-import java.util.UUID
-
-import oxalis.thirdparty.BrainTracing
-import play.api.{Application, Logger}
-import scala.concurrent.duration._
-
-import oxalis.user.UserCache
-import models.configuration.{DataSetConfiguration, UserConfiguration}
-import models.team._
-import reactivemongo.bson.BSONObjectID
-import oxalis.mail.DefaultMails
-import com.scalableminds.util.tools.{Fox, FoxImplicits}
-import controllers.Application
-import com.scalableminds.util.reactivemongo.{DBAccessContext, GlobalAccessContext}
-import com.scalableminds.util.security.SCrypt._
-import com.scalableminds.util.mail.Send
 import play.api.libs.concurrent.Execution.Implicits._
-import models.annotation.AnnotationService
 import play.api.libs.json.Json
+import reactivemongo.bson.BSONObjectID
 import reactivemongo.play.json.BSONFormats._
 
-object UserService extends FoxImplicits {
+import scala.concurrent.Future
+
+object UserService extends FoxImplicits with IdentityService[User] {
+
   lazy val Mailer =
     Akka.system(play.api.Play.current).actorSelection("/user/mailActor")
 
@@ -64,59 +65,21 @@ object UserService extends FoxImplicits {
   }
 
   def insert(teamName: String, email: String, firstName: String,
-    lastName: String, password: String, isActive: Boolean, teamRole: Role = Role.User): Fox[User] =
+             lastName: String, password: String, isActive: Boolean, teamRole: Role = Role.User, loginInfo: LoginInfo, passwordInfo: PasswordInfo): Fox[User] =
     for {
       teamOpt <- TeamDAO.findOneByName(teamName)(GlobalAccessContext).futureBox
       teamMemberships = teamOpt.map(t => TeamMembership(t.name, teamRole)).toList
-      user = User(email, firstName, lastName, isActive = isActive, hashPassword(password), md5(password), teamMemberships)
+      user = User(email, firstName, lastName, isActive = isActive, md5(password), teamMemberships, loginInfo = loginInfo, passwordInfo = passwordInfo)
       _ <- UserDAO.insert(user)(GlobalAccessContext)
     } yield user
 
-  def prepareMTurkUser(workerId: String, teamName: String, experience: Experience)(implicit ctx: DBAccessContext): Fox[User] = {
-    def necessaryTeamMemberships = {
-      TeamDAO.findOneByName(teamName).futureBox.map { teamOpt =>
-        teamOpt.map(t => TeamMembership(t.name, Role.User)).toList
-      }
-    }
-
-    def insertUser(email: String): Fox[User] = {
-      for {
-        teamMemberships <- necessaryTeamMemberships
-        user = User(
-          email,
-          "mturk", workerId,
-          isActive = true,
-          pwdHash = "",
-          md5hash = "",
-          teams = teamMemberships,
-          _isAnonymous = Some(true),
-          experiences = experience.toMap)
-        _ <- UserDAO.insert(user)
-      } yield user
-    }
-
-    def updateUser(u: User): Fox[User] = {
-      for{
-        teamMemberships <- necessaryTeamMemberships
-        updated <- UserDAO.findAndModify(Json.obj("_id" -> u._id), Json.obj("$set" -> Json.obj(
-          "teams" -> teamMemberships,
-          "experiences" -> experience.toMap
-        )), returnNew = true)
-      } yield updated
-    }
-
-    val email = workerId + "@MTURK"
-
-    UserService.findOneByEmail(email).flatMap(u => updateUser(u)) orElse insertUser(email)
-  }
-
   def update(
-    user: User,
-    firstName: String,
-    lastName: String,
-    activated: Boolean,
-    teams: List[TeamMembership],
-    experiences: Map[String, Int])(implicit ctx: DBAccessContext): Fox[User] = {
+              user: User,
+              firstName: String,
+              lastName: String,
+              activated: Boolean,
+              teams: List[TeamMembership],
+              experiences: Map[String, Int])(implicit ctx: DBAccessContext): Fox[User] = {
 
     if (!user.isActive && activated) {
       Mailer ! Send(DefaultMails.activatedMail(user.name, user.email))
@@ -128,15 +91,13 @@ object UserService extends FoxImplicits {
     }
   }
 
-  def changePassword(user: User, newPassword: String)(implicit ctx: DBAccessContext) = {
-    if (user.isActive)
-      Mailer ! Send(DefaultMails.changePasswordMail(user.name, user.email))
-
-    UserDAO.changePassword(user._id, newPassword).map { result =>
-      UserCache.invalidateUser(user.id)
-      result
+  def changePasswordInfo(loginInfo: LoginInfo, passwordInfo: PasswordInfo) = {
+    for {
+      user <- findOneByEmail(loginInfo.providerKey)
+      _ <- UserDAO.changePasswordInfo(user._id, passwordInfo)(GlobalAccessContext)
+    } yield {
+      passwordInfo
     }
-
   }
 
   def removeFromAllPossibleTeams(user: User, issuingUser: User)(implicit ctx: DBAccessContext) = {
@@ -173,19 +134,15 @@ object UserService extends FoxImplicits {
     }
   }
 
-  def auth(email: String, password: String): Fox[User] =
-    UserDAO.auth(email, password)(GlobalAccessContext)
+  def retrieve(loginInfo: LoginInfo): Future[Option[User]] = UserDAO.find(loginInfo)(GlobalAccessContext)
 
-  def authByToken(token: String)(implicit ctx: DBAccessContext): Fox[User] = {
-    Logger.warn("Trying to auth with token: " + token)
-    LoginTokenDAO.findBy(token).flatMap { loginToken =>
-      UserDAO.findOneById(loginToken._user)
-    }
+  def find(id: BSONObjectID) = UserDAO.findByIdQ(id)
+
+  def createLoginInfo(email: String): LoginInfo = {
+    LoginInfo(CredentialsProvider.ID, email)
   }
 
-  def createLoginToken(user: User, validDuration: Duration)(implicit ctx: DBAccessContext): Fox[String] = {
-    val token = UUID.randomUUID().toString
-    val expirationTime = System.currentTimeMillis + validDuration.toMillis
-    LoginTokenDAO.insert(LoginToken(user._id, token, expirationTime)).map( _ => token)
+  def createPasswordInfo(pw: String): PasswordInfo = {
+    PasswordInfo("SCrypt", SCrypt.hashPassword(pw))
   }
 }

@@ -5,13 +5,21 @@ import _ from "lodash";
 import * as React from "react";
 import { Table, Icon, Spin, Button, Input, Modal } from "antd";
 import Utils from "libs/utils";
-import Request from "libs/request";
 import messages from "messages";
 import CreateTeamModal from "admin/views/team/create_team_modal_view.js";
+import { getEditableTeams, deleteTeam } from "admin/admin_rest_api";
+import Persistence from "libs/persistence";
+import { PropTypes } from "prop-types";
+import { withRouter } from "react-router-dom";
 import type { APITeamType } from "admin/api_flow_types";
+import type { RouterHistory } from "react-router-dom";
 
 const { Column } = Table;
 const { Search } = Input;
+
+type Props = {
+  history: RouterHistory,
+};
 
 type State = {
   isLoading: boolean,
@@ -20,7 +28,12 @@ type State = {
   isTeamCreationModalVisible: boolean,
 };
 
-class TeamListView extends React.PureComponent<{}, State> {
+const persistence: Persistence<State> = new Persistence(
+  { searchQuery: PropTypes.string },
+  "teamList",
+);
+
+class TeamListView extends React.PureComponent<Props, State> {
   state = {
     isLoading: true,
     teams: [],
@@ -28,13 +41,20 @@ class TeamListView extends React.PureComponent<{}, State> {
     isTeamCreationModalVisible: false,
   };
 
+  componentWillMount() {
+    this.setState(persistence.load(this.props.history));
+  }
+
   componentDidMount() {
     this.fetchData();
   }
 
+  componentWillUpdate(nextProps, nextState) {
+    persistence.persist(this.props.history, nextState);
+  }
+
   async fetchData(): Promise<void> {
-    const url = "/api/teams?isEditable=true";
-    const teams = await Request.receiveJSON(url);
+    const teams = await getEditableTeams();
 
     this.setState({
       isLoading: false,
@@ -46,22 +66,18 @@ class TeamListView extends React.PureComponent<{}, State> {
     this.setState({ searchQuery: event.target.value });
   };
 
-  deleteTeam = async (script: APITeamType) => {
+  deleteTeam = (team: APITeamType) => {
     Modal.confirm({
       title: messages["team.delete"],
-      onOk: () => {
+      onOk: async () => {
         this.setState({
           isLoading: true,
         });
 
-        const url = `/api/teams/${script.id}`;
-        Request.receiveJSON(url, {
-          method: "DELETE",
-        }).then(() => {
-          this.setState({
-            isLoading: false,
-            teams: this.state.teams.filter(p => p.id !== script.id),
-          });
+        await deleteTeam(team.id);
+        this.setState({
+          isLoading: false,
+          teams: this.state.teams.filter(t => t.id !== team.id),
         });
       },
     });
@@ -78,7 +94,7 @@ class TeamListView extends React.PureComponent<{}, State> {
     const marginRight = { marginRight: 20 };
 
     return (
-      <div className="container wide">
+      <div className="container">
         <div style={{ marginTag: 20 }}>
           <div className="pull-right">
             <Button
@@ -93,6 +109,7 @@ class TeamListView extends React.PureComponent<{}, State> {
               style={{ width: 200 }}
               onPressEnter={this.handleSearch}
               onChange={this.handleSearch}
+              value={this.state.searchQuery}
             />
           </div>
           <h3>Teams</h3>
@@ -129,7 +146,8 @@ class TeamListView extends React.PureComponent<{}, State> {
                 key="owner"
                 sorter={Utils.localeCompareBy((team: APITeamType) => team.owner.lastName)}
                 render={owner =>
-                  owner.email ? `${owner.firstName} ${owner.lastName} (${owner.email})` : "-"}
+                  owner.email ? `${owner.firstName} ${owner.lastName} (${owner.email})` : "-"
+                }
               />
               <Column
                 title="Action"
@@ -154,4 +172,4 @@ class TeamListView extends React.PureComponent<{}, State> {
   }
 }
 
-export default TeamListView;
+export default withRouter(TeamListView);

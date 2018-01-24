@@ -1,28 +1,31 @@
-// flow
+// @flow
 /* eslint-disable jsx-a11y/href-no-hash */
 import * as React from "react";
-import { Row, Col, Modal, Card } from "antd";
+import { connect } from "react-redux";
+import { Row, Col, Modal, Card, Dropdown, Menu, Icon } from "antd";
 import Utils from "libs/utils";
 import Markdown from "react-remarkable";
 import TemplateHelpers from "libs/template_helpers";
-import app from "app";
 import messages from "messages";
+
 import type { DatasetType } from "dashboard/views/dataset_view";
+import type { OxalisState } from "oxalis/store";
+import type { APIUserType } from "admin/api_flow_types";
 
 const padding = 16;
+
+type StateProps = {
+  activeUser: ?APIUserType,
+};
 
 type Props = {
   datasets: Array<DatasetType>,
   searchQuery: string,
-};
+} & StateProps;
 
 class GalleryDatasetView extends React.PureComponent<Props> {
-  static defaultProps = {
-    searchQuery: "",
-  };
-
-  createTracing(event: Event) {
-    if (app.currentUser === undefined) {
+  createTracing = (event: Event) => {
+    if (this.props.activeUser == null) {
       event.preventDefault();
       Modal.confirm({
         content: messages["dataset.confirm_signup"],
@@ -31,7 +34,7 @@ class GalleryDatasetView extends React.PureComponent<Props> {
         },
       });
     }
-  }
+  };
 
   renderCard(dataset: DatasetType) {
     let description;
@@ -50,6 +53,37 @@ class GalleryDatasetView extends React.PureComponent<Props> {
       );
     }
 
+    const menu = (
+      <Menu>
+        <Menu.Item key="existing">
+          <a
+            href={`/datasets/${dataset.name}/trace?typ=volume&withFallback=true`}
+            onClick={this.createTracing}
+            title="Create volume tracing"
+          >
+            Use Existing Segmentation Layer
+          </a>
+        </Menu.Item>
+        <Menu.Item key="new">
+          <a
+            href={`/datasets/${dataset.name}/trace?typ=volume&withFallback=false`}
+            onClick={this.createTracing}
+            title="Create volume tracing"
+          >
+            Use a New Segmentation Layer
+          </a>
+        </Menu.Item>
+      </Menu>
+    );
+
+    const createVolumeTracingMenu = (
+      <Dropdown overlay={menu} trigger={["click"]}>
+        <a href="#" title="Create volume tracing">
+          <img src="/assets/images/volume.svg" alt="Volume" />
+        </a>
+      </Dropdown>
+    );
+
     return (
       <Card
         bodyStyle={{ padding: 0 }}
@@ -58,24 +92,27 @@ class GalleryDatasetView extends React.PureComponent<Props> {
       >
         <div className="dataset-thumbnail-buttons">
           <a href={`/datasets/${dataset.name}/view`} title="View dataset">
-            <img src="/assets/images/eye.svg" alt="Eye" />
+            <Icon
+              type="eye-o"
+              style={{
+                width: 25,
+                height: 25,
+                margin: 7.5,
+                fontSize: 26,
+                textAlign: "center",
+                verticalAlign: "middle",
+                color: "rgb(199, 199, 199)",
+              }}
+            />
           </a>
           <a
-            href={`/datasets/${dataset.name}/trace?typ=skeletonTracing`}
+            href={`/datasets/${dataset.name}/trace?typ=skeleton`}
             title="Create skeleton tracing"
             onClick={this.createTracing}
           >
             <img src="/assets/images/skeleton.svg" alt="Skeleton" />
           </a>
-          {dataset.dataStore.typ !== "ndstore" ? (
-            <a
-              href={`/datasets/${dataset.name}/trace?typ=volumeTracing`}
-              title="Create volume tracing"
-              onClick={this.createTracing}
-            >
-              <img src="/assets/images/volume.svg" alt="Volume" />
-            </a>
-          ) : null}
+          {dataset.dataStore.typ !== "ndstore" ? createVolumeTracingMenu : null}
         </div>
         <div className="dataset-description">
           <h3>{dataset.name}</h3>
@@ -103,4 +140,8 @@ class GalleryDatasetView extends React.PureComponent<Props> {
   }
 }
 
-export default GalleryDatasetView;
+const mapStateToProps = (state: OxalisState): StateProps => ({
+  activeUser: state.activeUser,
+});
+
+export default connect(mapStateToProps)(GalleryDatasetView);

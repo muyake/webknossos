@@ -1,22 +1,26 @@
 // @flow
-/* eslint-disable jsx-a11y/href-no-hash */
 
 import _ from "lodash";
 import * as React from "react";
+import { Link, withRouter } from "react-router-dom";
 import Request from "libs/request";
 import Utils from "libs/utils";
 import moment from "moment";
 import { Spin, Input, Button } from "antd";
 import AdvancedDatasetView from "dashboard/views/advanced_dataset/advanced_dataset_view";
 import GalleryDatasetView from "dashboard/views/gallery_dataset_view";
+import Persistence from "libs/persistence";
+import { PropTypes } from "prop-types";
 import type { APIUserType, APIDatasetType } from "admin/api_flow_types";
 import type { DataLayerType } from "oxalis/store";
+import type { RouterHistory } from "react-router-dom";
 
 const { Search } = Input;
 
 type Props = {
   dataViewType: "gallery" | "advanced",
   user: APIUserType,
+  history: RouterHistory,
 };
 
 export type DatasetType = APIDatasetType & {
@@ -30,6 +34,11 @@ type State = {
   searchQuery: string,
   isLoading: boolean,
 };
+
+const persistence: Persistence<State> = new Persistence(
+  { searchQuery: PropTypes.string },
+  "datasetList",
+);
 
 function createThumbnailURL(datasetName: string, layers: Array<DataLayerType>): string {
   const colorLayer = _.find(layers, { category: "color" });
@@ -62,8 +71,16 @@ class DatasetView extends React.PureComponent<Props, State> {
     isLoading: false,
   };
 
+  componentWillMount() {
+    this.setState(persistence.load(this.props.history));
+  }
+
   componentDidMount() {
     this.fetchData();
+  }
+
+  componentWillUpdate(nextProps, nextState) {
+    persistence.persist(this.props.history, nextState);
   }
 
   async fetchData(): Promise<void> {
@@ -119,16 +136,17 @@ class DatasetView extends React.PureComponent<Props, State> {
         style={{ width: 200, float: "right" }}
         onPressEnter={this.handleSearch}
         onChange={this.handleSearch}
+        value={this.state.searchQuery}
       />
     );
 
     const adminHeader = Utils.isUserAdmin(this.props.user) ? (
       <div className="pull-right">
-        <a href="/datasets/upload" style={margin}>
+        <Link to="/datasets/upload" style={margin}>
           <Button type="primary" icon="plus">
-            Add Dataset
+            Upload Dataset
           </Button>
-        </a>
+        </Link>
         {search}
       </div>
     ) : (
@@ -136,14 +154,6 @@ class DatasetView extends React.PureComponent<Props, State> {
     );
 
     const content = (() => {
-      if (this.state.isLoading) {
-        return (
-          <div className="text-center">
-            <Spin size="large" />
-          </div>
-        );
-      }
-
       if (isGallery) {
         return this.renderGallery();
       }
@@ -156,10 +166,12 @@ class DatasetView extends React.PureComponent<Props, State> {
         {adminHeader}
         <h3 className="TestDatasetHeadline">Datasets</h3>
         <div className="clearfix" style={{ margin: "20px 0px" }} />
-        <div>{content}</div>
+        <Spin size="large" spinning={this.state.isLoading}>
+          {content}
+        </Spin>
       </div>
     );
   }
 }
 
-export default DatasetView;
+export default withRouter(DatasetView);

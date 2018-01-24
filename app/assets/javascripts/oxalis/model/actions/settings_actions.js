@@ -9,8 +9,8 @@ import type {
   DatasetConfigurationType,
   DatasetLayerConfigurationType,
   TemporaryConfigurationType,
-  DatasetType,
 } from "oxalis/store";
+import type { APIDatasetType } from "admin/api_flow_types";
 import type { ModeType, ControlModeType } from "oxalis/constants";
 
 type UpdateUserSettingActionType = {
@@ -43,17 +43,20 @@ export type InitializeSettingsAction = {
   initialUserSettings: UserConfigurationType,
   initialDatasetSettings: DatasetConfigurationType,
 };
-type SetDatasetAction = { type: "SET_DATASET", dataset: DatasetType };
+type SetDatasetAction = { type: "SET_DATASET", dataset: APIDatasetType };
 type SetViewModeActionType = { type: "SET_VIEW_MODE", viewMode: ModeType };
 type SetFlightmodeRecordingActionType = { type: "SET_FLIGHTMODE_RECORDING", value: boolean };
 type SetControlModeActionType = { type: "SET_CONTROL_MODE", controlMode: ControlModeType };
 export type SettingActionType =
   | UpdateUserSettingActionType
   | UpdateDatasetSettingActionType
+  | UpdateTemporarySettingActionType
   | ToggleTemporarySettingActionType
   | InitializeSettingsAction
   | UpdateLayerSettingActionType
   | SetDatasetAction
+  | SetViewModeActionType
+  | SetFlightmodeRecordingActionType
   | SetControlModeActionType;
 
 export const updateUserSettingAction = (
@@ -101,7 +104,7 @@ export const updateLayerSettingAction = (
   value,
 });
 
-export const setDatasetAction = (dataset: DatasetType): SetDatasetAction => ({
+export const setDatasetAction = (dataset: APIDatasetType): SetDatasetAction => ({
   type: "SET_DATASET",
   dataset,
 });

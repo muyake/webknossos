@@ -2,14 +2,12 @@
  * dataset_info_view.js
  * @flow
  */
-import _ from "lodash";
 import React from "react";
 import { connect } from "react-redux";
-import Maybe from "data.maybe";
 import { getBaseVoxel } from "oxalis/model/scaleinfo";
 import constants, { ControlModeEnum } from "oxalis/constants";
+import { getStats } from "oxalis/model/accessors/skeletontracing_accessor";
 import { getPlaneScalingFactor } from "oxalis/model/accessors/flycam_accessor";
-import { getSkeletonTracing } from "oxalis/model/accessors/skeletontracing_accessor";
 import Store from "oxalis/store";
 import TemplateHelpers from "libs/template_helpers";
 import {
@@ -17,7 +15,8 @@ import {
   setAnnotationDescriptionAction,
 } from "oxalis/model/actions/annotation_actions";
 import EditableTextLabel from "oxalis/view/components/editable_text_label";
-import type { OxalisState, TracingType, DatasetType, FlycamType, TaskType } from "oxalis/store";
+import { Table } from "antd";
+import type { OxalisState, TracingType, DatasetType, TaskType, FlycamType } from "oxalis/store";
 
 type DatasetInfoTabStateProps = {
   tracing: TracingType,
@@ -31,19 +30,58 @@ type DatasetInfoTabProps = DatasetInfoTabStateProps & {
   setAnnotationDescription: string => void,
 };
 
+const shortcutColumns = [
+  {
+    title: "Keyboard Shortcut",
+    dataIndex: "keybinding",
+    key: "keybinding",
+  },
+  {
+    title: "Action",
+    dataIndex: "action",
+    key: "action",
+  },
+];
+
+const shortcuts = [
+  {
+    key: "1",
+    keybinding: "I,O or Alt + Mousewheel",
+    action: "Zoom in/out",
+  },
+  {
+    key: "2",
+    keybinding: "Mousewheel or D and F",
+    action: "Move Along 3rd Axis",
+  },
+  {
+    key: "3",
+    keybinding: "Left Mouse Drag or Arrow Keys",
+    action: "Move",
+  },
+  {
+    key: "4",
+    keybinding: "Right Click Drag in 3D View",
+    action: "Rotate 3D View",
+  },
+  {
+    key: "5",
+    keybinding: "K,L",
+    action: "Scale Up/Down Viewports",
+  },
+];
+
 class DatasetInfoTabView extends React.PureComponent<DatasetInfoTabProps> {
   calculateZoomLevel(): number {
+    const zoom = getPlaneScalingFactor(this.props.flycam);
     let width;
-    let zoom;
     const viewMode = Store.getState().temporaryConfiguration.viewMode;
     if (constants.MODES_PLANE.includes(viewMode)) {
-      zoom = getPlaneScalingFactor(this.props.flycam);
       width = constants.PLANE_WIDTH;
     } else if (constants.MODES_ARBITRARY.includes(viewMode)) {
-      zoom = this.props.flycam.zoomStep;
-      width = constants.ARBITRARY_WIDTH;
+      width = constants.VIEWPORT_WIDTH;
     } else {
-      throw Error(`Model mode not recognized: ${viewMode}`);
+      throw new Error(`Model mode not recognized: ${viewMode}`);
     }
     // unit is nm
     const baseVoxel = getBaseVoxel(this.props.dataset.scale);
@@ -72,18 +110,7 @@ class DatasetInfoTabView extends React.PureComponent<DatasetInfoTabProps> {
     const { tracingType, name, description } = this.props.tracing;
     const tracingName = name || "<untitled>";
     const tracingDescription = description || "<no comment>";
-    const treesMaybe = getSkeletonTracing(this.props.tracing).chain(tracing =>
-      Maybe.fromNullable(tracing.trees),
-    );
-    const treeCount = treesMaybe.map(trees => _.size(trees)).getOrElse(null);
-    const nodeCount = treesMaybe
-      // eslint-disable-next-line no-return-assign
-      .map(trees => _.reduce(trees, (sum, tree) => (sum += _.size(tree.nodes)), 0))
-      .getOrElse(null);
-    const branchPointCount = treesMaybe
-      // eslint-disable-next-line no-return-assign
-      .map(trees => _.reduce(trees, (sum, tree) => (sum += _.size(tree.branchPoints)), 0))
-      .getOrElse(null);
+    const statsMaybe = getStats(this.props.tracing);
     let annotationTypeLabel;
 
     if (this.props.task != null) {
@@ -129,40 +156,24 @@ class DatasetInfoTabView extends React.PureComponent<DatasetInfoTabProps> {
         </p>
         {this.props.tracing.type === "skeleton" ? (
           <div>
-            <p>Number of Trees: {treeCount}</p>
-            <p>Number of Nodes: {nodeCount}</p>
-            <p>Number of Branch Points: {branchPointCount}</p>
+            <p>Number of Trees: {statsMaybe.map(stats => stats.treeCount).getOrElse(null)}</p>
+            <p>Number of Nodes: {statsMaybe.map(stats => stats.nodeCount).getOrElse(null)}</p>
+            <p>Number of Edges: {statsMaybe.map(stats => stats.edgeCount).getOrElse(null)}</p>
+            <p>
+              Number of Branch Points:{" "}
+              {statsMaybe.map(stats => stats.branchPointCount).getOrElse(null)}
+            </p>
           </div>
         ) : null}
         {isPublicViewMode ? (
           <div>
-            <table className="table table-condensed table-nohead table-bordered">
-              <tbody>
-                <tr>
-                  <th colSpan="2">Controls</th>
-                </tr>
-                <tr>
-                  <td>I,O or Alt + Mousewheel</td>
-                  <td>Zoom in/out</td>
-                </tr>
-                <tr>
-                  <td>Mousewheel or D and F</td>
-                  <td>Move Along 3rd Axis</td>
-                </tr>
-                <tr>
-                  <td>Left Mouse Drag or Arrow Keys</td>
-                  <td>Move</td>
-                </tr>
-                <tr>
-                  <td>Right Click Drag in 3D View</td>
-                  <td>Rotate 3D View</td>
-                </tr>
-                <tr>
-                  <td>K,L</td>
-                  <td>Scale Up/Down Viewports</td>
-                </tr>
-              </tbody>
-            </table>
+            <Table
+              dataSource={shortcuts}
+              columns={shortcutColumns}
+              pagination={false}
+              style={{ marginRight: 20 }}
+              size="small"
+            />
             <div>
               <img
                 className="img-50"

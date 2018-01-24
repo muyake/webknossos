@@ -4,7 +4,7 @@
  */
 
 import * as React from "react";
-import Backbone from "backbone";
+import BackboneEvents from "backbone-events-standalone";
 import _ from "lodash";
 import { InputKeyboard, InputMouse, InputKeyboardNoLoop } from "libs/input";
 import type { ModifierKeys } from "libs/input";
@@ -20,7 +20,7 @@ import {
 } from "oxalis/model/actions/settings_actions";
 import {
   setActiveNodeAction,
-  deleteNodeAction,
+  deleteNodeWithConfirmAction,
   createNodeAction,
   createBranchPointAction,
   requestDeleteBranchPointAction,
@@ -75,7 +75,7 @@ class ArbitraryController extends React.PureComponent<Props> {
   stopListening: Function;
 
   componentDidMount() {
-    _.extend(this, Backbone.Events);
+    _.extend(this, BackboneEvents);
     this.input = {};
     this.storePropertyUnsubscribers = [];
     this.start();
@@ -101,29 +101,31 @@ class ArbitraryController extends React.PureComponent<Props> {
   initMouse(): void {
     this.input.mouse = new InputMouse(CANVAS_SELECTOR, {
       leftDownMove: (delta: Point2) => {
-        const mouseInversionX = Store.getState().userConfiguration.inverseX ? 1 : -1;
-        const mouseInversionY = Store.getState().userConfiguration.inverseY ? 1 : -1;
         if (this.props.viewMode === constants.MODE_ARBITRARY) {
           Store.dispatch(
-            yawFlycamAction(
-              -delta.x * mouseInversionX * Store.getState().userConfiguration.mouseRotateValue,
-              true,
-            ),
+            yawFlycamAction(delta.x * Store.getState().userConfiguration.mouseRotateValue, true),
           );
           Store.dispatch(
             pitchFlycamAction(
-              delta.y * mouseInversionY * Store.getState().userConfiguration.mouseRotateValue,
+              delta.y * -1 * Store.getState().userConfiguration.mouseRotateValue,
               true,
             ),
           );
         } else if (this.props.viewMode === constants.MODE_ARBITRARY_PLANE) {
           const f =
             Store.getState().flycam.zoomStep /
-            (this.arbitraryView.width / constants.ARBITRARY_WIDTH);
+            (this.arbitraryView.width / constants.VIEWPORT_WIDTH);
           Store.dispatch(moveFlycamAction([delta.x * f, delta.y * f, 0]));
         }
       },
       scroll: this.scroll,
+      pinch: (delta: number) => {
+        if (delta < 0) {
+          Store.dispatch(zoomOutAction());
+        } else {
+          Store.dispatch(zoomInAction());
+        }
+      },
     });
   }
 
@@ -133,10 +135,6 @@ class ArbitraryController extends React.PureComponent<Props> {
 
     this.input.keyboard = new InputKeyboard({
       // KeyboardJS is sensitive to ordering (complex combos first)
-
-      // Scale plane
-      l: () => this.arbitraryView.applyScale(-Store.getState().userConfiguration.scaleValue),
-      k: () => this.arbitraryView.applyScale(Store.getState().userConfiguration.scaleValue),
 
       // Move
       space: timeFactor => {
@@ -229,7 +227,7 @@ class ArbitraryController extends React.PureComponent<Props> {
 
       // Delete active node and recenter last node
       "shift + space": () => {
-        Store.dispatch(deleteNodeAction());
+        Store.dispatch(deleteNodeWithConfirmAction());
       },
     });
   }
@@ -271,7 +269,6 @@ class ArbitraryController extends React.PureComponent<Props> {
   init(): void {
     const clippingDistanceArbitrary = Store.getState().userConfiguration.clippingDistanceArbitrary;
     this.setClippingDistance(clippingDistanceArbitrary);
-    this.arbitraryView.applyScale(0);
   }
 
   bindToEvents(): void {
@@ -291,10 +288,13 @@ class ArbitraryController extends React.PureComponent<Props> {
             sphericalCapRadius,
             clippingDistanceArbitrary,
             displayCrosshair,
+            crosshairSize,
           } = userConfiguration;
-          this.crosshair.setScale(sphericalCapRadius);
+          this.plane.setSphericalCapRadius(sphericalCapRadius);
           this.setClippingDistance(clippingDistanceArbitrary);
+          this.crosshair.setScale(crosshairSize);
           this.crosshair.setVisibility(displayCrosshair);
+          this.arbitraryView.resize();
         },
       ),
       listenToStoreProperty(
@@ -311,10 +311,10 @@ class ArbitraryController extends React.PureComponent<Props> {
   }
 
   start(): void {
-    this.arbitraryView = new ArbitraryView(CANVAS_SELECTOR, constants.ARBITRARY_WIDTH);
+    this.arbitraryView = new ArbitraryView();
     this.arbitraryView.start();
 
-    this.plane = new ArbitraryPlane(constants.ARBITRARY_WIDTH);
+    this.plane = new ArbitraryPlane();
     this.plane.setMode(this.props.viewMode);
     this.crosshair = new Crosshair(Store.getState().userConfiguration.crosshairSize);
     this.crosshair.setVisibility(Store.getState().userConfiguration.displayCrosshair);

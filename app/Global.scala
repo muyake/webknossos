@@ -12,14 +12,12 @@ import models.user._
 import net.liftweb.common.Full
 import oxalis.cleanup.CleanUpService
 import oxalis.jobs.AvailableTasksJob
-import oxalis.mturk.MTurkNotificationReceiver
 import play.api._
 import play.api.libs.concurrent.Execution.Implicits._
 import play.api.libs.concurrent._
 import play.api.libs.json.Json
+import play.api.mvc.Results.Ok
 import play.api.mvc._
-
-import scala.concurrent.duration._
 
 object Global extends GlobalSettings with LazyLogging{
 
@@ -33,8 +31,8 @@ object Global extends GlobalSettings with LazyLogging{
       InitialData.insert(conf)
     }
 
-    CleanUpService.register("deletion of expired dataTokens", DataToken.expirationTime){
-      DataTokenDAO.removeExpiredTokens()(GlobalAccessContext).map(r => s"deleted ${r.n}")
+    CleanUpService.register("deletion of expired dataTokens", UserToken.expirationTime) {
+      UserTokenDAO.removeExpiredTokens()(GlobalAccessContext).map(r => s"deleted ${r.n}")
     }
 
     super.onStart(app)
@@ -46,14 +44,19 @@ object Global extends GlobalSettings with LazyLogging{
       Props(new Mailer(conf)),
       name = "mailActor")
 
-    // We need to delay the start of the notification handle, since the database needs to be available first
-    MTurkNotificationReceiver.startDelayed(app, 2.seconds)
-
     if (conf.getBoolean("workload.active")) {
       Akka.system(app).actorOf(
         Props(new AvailableTasksJob()),
         name = "availableTasksMailActor"
       )
+    }
+  }
+
+  override def onRouteRequest(request: RequestHeader): Option[Handler] = {
+    if (request.uri.matches("^(/annotations/|/datasets/|/api/|/data/|/assets/).*$")) {
+      super.onRouteRequest(request)
+    } else {
+      Some(Action {Ok(views.html.main())})
     }
   }
 
@@ -92,9 +95,10 @@ object InitialData extends GlobalDBAccess with LazyLogging {
           "SCM",
           "Boy",
           true,
-          SCrypt.hashPassword(password),
           SCrypt.md5(password),
-          List(TeamMembership(mpi.name, Role.Admin)))
+          List(TeamMembership(mpi.name, Role.Admin)),
+          loginInfo = UserService.createLoginInfo(email),
+          passwordInfo = UserService.createPasswordInfo(password))
         )
     }
   }
@@ -124,7 +128,8 @@ object InitialData extends GlobalDBAccess with LazyLogging {
     DataStoreDAO.findOne(Json.obj("name" -> "localhost")).futureBox.map { maybeStore =>
       if (maybeStore.isEmpty) {
         val url = conf.getString("http.uri").getOrElse("http://localhost:9000")
-        DataStoreDAO.insert(DataStore("localhost", url, WebKnossosStore, "something-secure"))
+        val key = conf.getString("datastore.key").getOrElse("something-secure")
+        DataStoreDAO.insert(DataStore("localhost", url, WebKnossosStore, key))
       }
     }
   }

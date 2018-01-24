@@ -4,19 +4,17 @@ import _ from "lodash";
 import * as React from "react";
 import { Spin, Modal, Button, Select } from "antd";
 import Request from "libs/request";
-import type { APIUserType } from "admin/api_flow_types";
+import { getUsers } from "admin/admin_rest_api";
+import type { APIUserType, APIAnnotationType } from "admin/api_flow_types";
 
 const { Option } = Select;
 
 type Props = {
-  onChange: Function,
-  // Somehow, eslint doesn't recognize that annotationId is used in
-  // the async functions
-  // eslint-disable-next-line react/no-unused-prop-types
+  onChange: (updatedAnnotation: APIAnnotationType) => void,
   annotationId: ?string,
   onCancel: Function,
   visible: boolean,
-  userID: ?string,
+  userId: ?string,
 };
 
 type State = {
@@ -38,7 +36,7 @@ class TransferTaskModal extends React.PureComponent<Props, State> {
 
   async fetchData() {
     this.setState({ isLoading: true });
-    const users = await Request.receiveJSON("/api/users");
+    const users = await getUsers();
     const activeUsers = users.filter(u => u.isActive);
     this.setState({ isLoading: false });
     const sortedUsers = _.sortBy(activeUsers, "lastName");
@@ -54,13 +52,13 @@ class TransferTaskModal extends React.PureComponent<Props, State> {
     }
     const url = `/annotations/Task/${this.props.annotationId}/transfer`;
     this.setState({ isLoading: true });
-    await Request.sendJSONReceiveJSON(url, {
+    const updatedAnnotation = await Request.sendJSONReceiveJSON(url, {
       data: {
         userId: this.state.currentUserIdValue,
       },
     });
     this.setState({ isLoading: false });
-    this.props.onChange();
+    this.props.onChange(updatedAnnotation);
   }
 
   handleSelectChange = (userId: string) => {
@@ -77,9 +75,10 @@ class TransferTaskModal extends React.PureComponent<Props, State> {
         optionFilterProp="children"
         style={{ width: "100%" }}
         filterOption={(input, option) =>
-          option.props.children.toLowerCase().indexOf(input.toLowerCase()) >= 0}
+          option.props.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+        }
       >
-        {this.state.users.filter(u => u.id !== this.props.userID).map(user => (
+        {this.state.users.filter(u => u.id !== this.props.userId).map(user => (
           <Option key={user.id} value={user.id}>
             {`${user.lastName}, ${user.firstName} ${user.email}`}
           </Option>

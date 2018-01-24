@@ -7,17 +7,21 @@ if [ ! $2 ]; then
   exit 1
 fi
 
-db=$1
+uri=$1
 dump_dir=$2
-
-host="$3"
-if [ ! $3 ]; then
-  host="localhost:27017"
-fi
 
 for dump_file in `ls $dump_dir`
 do
   collection=${dump_file%.json}
-  mongo "$host/$db" --eval "db.${collection}.drop()"
-  mongoimport --db "$db" --host "$host" --collection "$collection" --file "$dump_dir/$dump_file"
+  mongo "$uri" --eval "db.${collection}.drop()"
+  mongo "$uri" --eval "db.createCollection('$collection')"
+done
+
+bash ../activateValidation.sh "$uri" "$dump_dir/../../conf/schemas"
+bash ../validationAction.sh "$uri" "error" "$dump_dir/../../conf/schemas"
+
+for dump_file in `ls $dump_dir`
+do
+  collection=${dump_file%.json}
+  mongoimport --uri "$uri" --collection "$collection" --file "$dump_dir/$dump_file"
 done

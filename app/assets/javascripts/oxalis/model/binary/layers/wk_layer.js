@@ -10,6 +10,10 @@ import type { BucketRequestOptions } from "oxalis/model/binary/layers/layer";
 import BucketBuilder from "oxalis/model/binary/layers/bucket_builder";
 import type { BucketInfo } from "oxalis/model/binary/layers/bucket_builder";
 import Request from "libs/request";
+import Store from "oxalis/store";
+import { pushSaveQueueAction } from "oxalis/model/actions/save_actions";
+import { updateBucket } from "oxalis/model/sagas/update_actions";
+import Utils from "libs/utils";
 import type { Vector4 } from "oxalis/constants";
 import type { DataLayerType, DataStoreInfoType } from "oxalis/store";
 import type { DataBucket } from "oxalis/model/binary/bucket";
@@ -47,8 +51,9 @@ class WkLayer extends Layer {
 
     const datasetName = this.getDatasetName();
     const responseBuffer = await Request.sendJSONReceiveArraybuffer(
-      `${this.dataStoreInfo.url}/data/datasets/${datasetName}/layers/${this
-        .name}/data?token=${token}`,
+      `${this.dataStoreInfo.url}/data/datasets/${datasetName}/layers/${
+        this.name
+      }/data?token=${token}`,
       {
         data: batch,
         timeout: REQUEST_TIMEOUT,
@@ -79,28 +84,20 @@ class WkLayer extends Layer {
     return newColors;
   }
 
-  async sendToStoreImpl(batch: Array<DataBucket>, token: string): Promise<void> {
-    const data = batch.map(bucket => {
+  async sendToStoreImpl(batch: Array<DataBucket>): Promise<void> {
+    const YIELD_AFTER_X_BUCKETS = 3;
+    let counter = 0;
+    const items = [];
+    for (const bucket of batch) {
+      counter++;
+      // Do not block the main thread for too long as Base64.fromByteArray is performance heavy
+      // eslint-disable-next-line no-await-in-loop
+      if (counter % YIELD_AFTER_X_BUCKETS === 0) await Utils.sleep(1);
       const bucketData = bucket.getData();
       const bucketInfo = BucketBuilder.fromZoomedAddress(bucket.zoomedAddress);
-      const bucketWithData = Object.assign({}, bucketInfo, {
-        base64Data: Base64.fromByteArray(bucketData),
-      });
-      return { action: "labelVolume", value: bucketWithData };
-    });
-
-    const datasetName = this.getDatasetName();
-    await Request.sendJSONReceiveJSON(
-      `${this.dataStoreInfo.url}/data/tracings/volumes/${this
-        .name}?dataSetName=${datasetName}&token=${token}`,
-      {
-        method: "POST",
-        data,
-        timeout: REQUEST_TIMEOUT,
-        compress: true,
-        doNotCatch: true,
-      },
-    );
+      items.push(updateBucket(bucketInfo, Base64.fromByteArray(bucketData)));
+    }
+    Store.dispatch(pushSaveQueueAction(items));
   }
 }
 

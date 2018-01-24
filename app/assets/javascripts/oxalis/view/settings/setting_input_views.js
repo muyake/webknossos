@@ -50,6 +50,7 @@ export class NumberSliderSetting extends React.PureComponent<NumberSliderSetting
             style={{ marginLeft: 16 }}
             value={value}
             onChange={this._onChange}
+            size="small"
           />
         </Col>
       </Row>
@@ -135,6 +136,7 @@ export class LogSliderSetting extends React.PureComponent<LogSliderSettingProps>
             value={roundTo != null ? Utils.roundTo(value, roundTo) : value}
             onChange={this.onChangeInput}
             disabled={disabled}
+            size="small"
           />
         </Col>
       </Row>
@@ -189,14 +191,21 @@ export class NumberInputSetting extends React.PureComponent<NumberInputSettingPr
           <label className="setting-label">{label}</label>
         </Col>
         <Col span={16}>
-          <InputNumber min={min} max={max} onChange={onChange} value={value} step={step} />
+          <InputNumber
+            min={min}
+            max={max}
+            onChange={onChange}
+            value={value}
+            step={step}
+            size="small"
+          />
         </Col>
       </Row>
     );
   }
 }
 
-type VectorInputSettingPropTypes<T: Vector6> = {
+type VectorInputSettingPropTypes<T> = {
   label: string,
   value: T,
   onChange: (value: T) => void,
@@ -210,28 +219,31 @@ type State = {
 };
 
 export class Vector6InputSetting extends React.PureComponent<
-  VectorInputSettingPropTypes<Vector6>,
+  VectorInputSettingPropTypes<?Vector6>,
   State,
 > {
-  constructor(props: VectorInputSettingPropTypes<Vector6>) {
+  constructor(props: VectorInputSettingPropTypes<?Vector6>) {
     super(props);
     this.state = {
       isEditing: false,
       isValid: true,
-      text: props.value.join(", "),
+      text: this.computeText(props.value),
     };
   }
 
-  componentWillReceiveProps(newProps: VectorInputSettingPropTypes<Vector6>) {
+  componentWillReceiveProps(newProps: VectorInputSettingPropTypes<?Vector6>) {
     if (!this.state.isEditing) {
       this.setState({
         isValid: true,
-        text: newProps.value.join(", "),
+        text: this.computeText(newProps.value),
       });
     }
   }
 
-  defaultValue: Vector6 = [0, 0, 0, 0, 0, 0];
+  computeText(vector: ?Vector6) {
+    const defaultValue = "";
+    return vector != null ? vector.join(", ") : defaultValue;
+  }
 
   handleBlur = () => {
     this.setState({
@@ -240,13 +252,13 @@ export class Vector6InputSetting extends React.PureComponent<
     if (this.state.isValid) {
       this.setState({
         isValid: true,
-        text: this.props.value.join(", "),
+        text: this.computeText(this.props.value),
       });
     } else {
-      this.props.onChange(this.defaultValue);
+      this.props.onChange();
       this.setState({
         isValid: true,
-        text: this.defaultValue.join(", "),
+        text: this.computeText(),
       });
     }
   };
@@ -254,7 +266,7 @@ export class Vector6InputSetting extends React.PureComponent<
   handleFocus = () => {
     this.setState({
       isEditing: true,
-      text: this.props.value.join(", "),
+      text: this.computeText(this.props.value),
       isValid: true,
     });
   };
@@ -265,15 +277,19 @@ export class Vector6InputSetting extends React.PureComponent<
     // only numbers, commas and whitespace is allowed
     const isValidInput = /^[\d\s,]*$/g.test(text);
     const value = Utils.stringToNumberArray(text);
-    const isValidFormat = value.length === 6;
+    const isValidFormat = value.length === 6 || value.length === 0;
 
     if (isValidFormat && isValidInput) {
-      this.props.onChange(Utils.numberArrayToVector6(value));
+      if (value.length === 0) {
+        this.props.onChange();
+      } else {
+        this.props.onChange(Utils.numberArrayToVector6(value));
+      }
     }
 
     this.setState({
       text,
-      isValid: isValidFormat,
+      isValid: isValidInput && isValidFormat,
     });
   };
 
@@ -297,6 +313,8 @@ export class Vector6InputSetting extends React.PureComponent<
               onFocus={this.handleFocus}
               onBlur={this.handleBlur}
               value={this.state.text}
+              placeholder="0, 0, 0, 512, 512, 512"
+              size="small"
             />
           </Tooltip>
         </Col>
@@ -306,7 +324,6 @@ export class Vector6InputSetting extends React.PureComponent<
 }
 
 type ColorSettingPropTypes = {
-  // eslint-disable-next-line react/no-unused-prop-types
   value: string,
   label: string,
   onChange: (value: Vector3) => void,
@@ -335,7 +352,7 @@ type DropdownSettingProps = {
   onChange: (value: number) => void,
   label: string,
   value: number,
-  children?: Array<Select.Option>,
+  children?: Array<React.Node>,
 };
 
 export class DropdownSetting extends React.PureComponent<DropdownSettingProps> {
@@ -351,7 +368,12 @@ export class DropdownSetting extends React.PureComponent<DropdownSettingProps> {
           <label className="setting-label">{label}</label>
         </Col>
         <Col span={16}>
-          <Select onChange={onChange} value={value.toString()} defaultValue={value.toString()}>
+          <Select
+            onChange={onChange}
+            value={value.toString()}
+            defaultValue={value.toString()}
+            size="small"
+          >
             {children}
           </Select>
         </Col>

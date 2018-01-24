@@ -3,26 +3,30 @@
 
 import _ from "lodash";
 import * as React from "react";
+import { Link, withRouter } from "react-router-dom";
 import Request from "libs/request";
 import { AsyncLink } from "components/async_clickables";
-import { Spin, Input, Table, Button, Modal, Tag } from "antd";
-import type { APIAnnotationType } from "admin/api_flow_types";
+import { Spin, Input, Table, Button, Modal, Tag, Icon } from "antd";
 import FormatUtils from "libs/format_utils";
 import Toast from "libs/toast";
 import Utils from "libs/utils";
 import update from "immutability-helper";
-import app from "app";
 import TemplateHelpers from "libs/template_helpers";
 import EditableTextLabel from "oxalis/view/components/editable_text_label";
 import EditableTextIcon from "oxalis/view/components/editable_text_icon";
 import FileUpload from "components/file_upload";
+import Persistence from "libs/persistence";
+import { PropTypes } from "prop-types";
+import type { APIAnnotationType } from "admin/api_flow_types";
+import type { RouterHistory } from "react-router-dom";
 
 const { Column } = Table;
 const { Search } = Input;
 
 type Props = {
-  userID: ?string,
+  userId: ?string,
   isAdminView: boolean,
+  history: RouterHistory,
 };
 
 type State = {
@@ -34,12 +38,20 @@ type State = {
     isUnarchived: boolean,
   },
   searchQuery: string,
-  requestCount: number,
   isUploadingNML: boolean,
   tags: Array<string>,
+  isLoading: boolean,
 };
 
-export default class ExplorativeAnnotationsView extends React.PureComponent<Props, State> {
+const persistence: Persistence<State> = new Persistence(
+  {
+    searchQuery: PropTypes.string,
+    shouldShowArchivedTracings: PropTypes.bool,
+  },
+  "explorativeList",
+);
+
+class ExplorativeAnnotationsView extends React.PureComponent<Props, State> {
   state = {
     shouldShowArchivedTracings: false,
     archivedTracings: [],
@@ -49,27 +61,33 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
       isUnarchived: false,
     },
     searchQuery: "",
-    requestCount: 0,
     isUploadingNML: false,
     tags: [],
+    isLoading: false,
   };
+
+  componentWillMount() {
+    this.setState(persistence.load(this.props.history));
+  }
 
   componentDidMount() {
     this.restoreSearchTags();
     this.fetchDataMaybe();
   }
 
+  componentWillUpdate(nextProps, nextState) {
+    persistence.persist(this.props.history, nextState);
+  }
+
+  componentDidUpdate(prevProps, prevState) {
+    if (this.state.shouldShowArchivedTracings !== prevState.shouldShowArchivedTracings) {
+      this.fetchDataMaybe();
+    }
+  }
+
   isFetchNecessary(): boolean {
     const accessor = this.state.shouldShowArchivedTracings ? "isArchived" : "isUnarchived";
     return !this.state.didAlreadyFetchMetaInfo[accessor];
-  }
-
-  enterRequest() {
-    this.setState({ requestCount: this.state.requestCount + 1 });
-  }
-
-  leaveRequest() {
-    this.setState({ requestCount: this.state.requestCount - 1 });
   }
 
   restoreSearchTags() {
@@ -89,18 +107,19 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
     if (!this.isFetchNecessary()) {
       return;
     }
-
-    const isFinishedString = this.state.shouldShowArchivedTracings.toString();
-    const url = this.props.userID
-      ? `/api/users/${this.props.userID}/annotations?isFinished=${isFinishedString}`
+    // Cache shouldShowArchivedTracings, otherwise it could have another value later
+    const showArchivedTracings = this.state.shouldShowArchivedTracings;
+    const isFinishedString = showArchivedTracings.toString();
+    const url = this.props.userId
+      ? `/api/users/${this.props.userId}/annotations?isFinished=${isFinishedString}`
       : `/api/user/annotations?isFinished=${isFinishedString}`;
 
-    this.enterRequest();
+    this.setState({ isLoading: true });
     const tracings = await Request.receiveJSON(url);
-    this.leaveRequest();
-    if (this.state.shouldShowArchivedTracings) {
+    if (showArchivedTracings) {
       this.setState(
         update(this.state, {
+          isLoading: { $set: false },
           archivedTracings: { $set: tracings },
           didAlreadyFetchMetaInfo: {
             isArchived: { $set: true },
@@ -110,6 +129,7 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
     } else {
       this.setState(
         update(this.state, {
+          isLoading: { $set: false },
           unarchivedTracings: { $set: tracings },
           didAlreadyFetchMetaInfo: {
             isUnarchived: { $set: true },
@@ -120,20 +140,17 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
   }
 
   toggleShowArchived = () => {
-    this.setState({ shouldShowArchivedTracings: !this.state.shouldShowArchivedTracings }, () => {
-      this.fetchDataMaybe();
-    });
+    this.setState({ shouldShowArchivedTracings: !this.state.shouldShowArchivedTracings });
   };
 
   finishOrReopenTracing = async (type: "finish" | "reopen", tracing: APIAnnotationType) => {
-    const controller = jsRoutes.controllers.AnnotationController;
     const url =
       type === "finish"
-        ? controller.finish(tracing.typ, tracing.id).url
-        : controller.reopen(tracing.typ, tracing.id).url;
+        ? `/annotations/${tracing.typ}/${tracing.id}/finish`
+        : `/annotations/${tracing.typ}/${tracing.id}/reopen`;
 
     const newTracing = await Request.receiveJSON(url);
-    Toast.message(newTracing.messages);
+    Toast.messages(newTracing.messages);
 
     const newTracings = this.getCurrentTracings().filter(t => t.id !== tracing.id);
 
@@ -151,10 +168,7 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
   };
 
   handleNMLUpload = (response: Object) => {
-    response.messages.map(m => Toast.success(m.success));
-    app.router.navigate(`/annotations/${response.annotation.typ}/${response.annotation.id}`, {
-      trigger: true,
-    });
+    this.props.history.push(`/annotations/${response.annotation.typ}/${response.annotation.id}`);
   };
 
   renderActions = (tracing: APIAnnotationType) => {
@@ -162,24 +176,20 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
       return null;
     }
 
-    const controller = jsRoutes.controllers.AnnotationController;
     const { typ, id } = tracing;
     if (!this.state.shouldShowArchivedTracings) {
       return (
         <div>
-          <a href={controller.trace(typ, id).url}>
-            <i className="fa fa-random" />
-            <strong>Trace</strong>
-          </a>
+          <Link to={`/annotations/${typ}/${id}`}>
+            <Icon type="play-circle-o" />Trace
+          </Link>
           <br />
-          <a href={jsRoutes.controllers.AnnotationIOController.download(typ, id).url}>
-            <i className="fa fa-download" />
-            Download
+          <a href={`/annotations/${typ}/${id}/download`}>
+            <Icon type="download" />Download
           </a>
           <br />
           <AsyncLink href="#" onClick={() => this.finishOrReopenTracing("finish", tracing)}>
-            <i className="fa fa-archive" />
-            Archive
+            <Icon type="inbox" />Archive
           </AsyncLink>
           <br />
         </div>
@@ -188,8 +198,7 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
       return (
         <div>
           <AsyncLink href="#" onClick={() => this.finishOrReopenTracing("reopen", tracing)}>
-            <i className="fa fa-folder-open" />
-            reopen
+            <Icon type="folder-open" />Reopen
           </AsyncLink>
           <br />
         </div>
@@ -228,14 +237,16 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
     const payload = { data: { name } };
 
     Request.sendJSONReceiveJSON(url, payload).then(response => {
-      Toast.message(response.messages);
+      Toast.messages(response.messages);
     });
   }
 
   archiveAll = () => {
     const selectedAnnotations = this.getFilteredTracings();
     Modal.confirm({
-      content: `Are you sure you want to archive all ${selectedAnnotations.length} explorative annotations matching the current search query / tags?`,
+      content: `Are you sure you want to archive all ${
+        selectedAnnotations.length
+      } explorative annotations matching the current search query / tags?`,
       onOk: async () => {
         const selectedAnnotationIds = selectedAnnotations.map(t => t.id);
         const data = await Request.sendJSONReceiveJSON("/annotations/Explorational/finish", {
@@ -244,7 +255,7 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
             annotations: selectedAnnotationIds,
           },
         });
-        Toast.message(data.messages);
+        Toast.messages(data.messages);
 
         this.setState({
           archivedTracings: this.state.archivedTracings.concat(selectedAnnotations),
@@ -325,9 +336,9 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
         }}
       >
         <Column
-          title="#"
+          title="ID"
           dataIndex="id"
-          render={(__, tracing) => FormatUtils.formatHash(tracing.id)}
+          render={(__, tracing: APIAnnotationType) => FormatUtils.formatHash(tracing.id)}
           sorter={Utils.localeCompareBy("id")}
           className="monospace-id"
         />
@@ -335,7 +346,7 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
           title="Name"
           dataIndex="name"
           sorter={Utils.localeCompareBy("name")}
-          render={(name, tracing) => (
+          render={(name: string, tracing: APIAnnotationType) => (
             <EditableTextLabel
               value={name}
               onChange={newName => this.renameTracing(tracing, newName)}
@@ -344,31 +355,32 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
         />
         <Column
           title="Stats"
-          render={(__, tracing) =>
-            tracing.stats && tracing.contentType === "skeletonTracing" ? (
+          render={(__, tracing: APIAnnotationType) =>
+            tracing.stats && tracing.content.typ === "skeleton" ? (
               <div>
                 <span title="Trees">
                   <i className="fa fa-sitemap" />
-                  {tracing.stats.numberOfTrees}
+                  {tracing.stats.treeCount}
                 </span>
                 <br />
                 <span title="Nodes">
                   <i className="fa fa-bull" />
-                  {tracing.stats.numberOfNodes}
+                  {tracing.stats.nodeCount}
                 </span>
                 <br />
                 <span title="Edges">
                   <i className="fa fa-arrows-h" />
-                  {tracing.stats.numberOfEdges}
+                  {tracing.stats.edgeCount}
                 </span>
               </div>
-            ) : null}
+            ) : null
+          }
         />
         <Column
           title="Tags"
           dataIndex="tags"
           width={500}
-          render={(tags, tracing) => (
+          render={(tags: Array<string>, tracing: APIAnnotationType) => (
             <div>
               {tags.map(tag => (
                 <Tag
@@ -377,7 +389,7 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
                   onClick={_.partial(this.addTagToSearch, tag)}
                   onClose={_.partial(this.editTagFromAnnotation, tracing, false, tag)}
                   closable={
-                    !(tag === tracing.dataSetName || tag === tracing.contentType) &&
+                    !(tag === tracing.dataSetName || tag === tracing.content.typ) &&
                     !this.state.shouldShowArchivedTracings
                   }
                 >
@@ -402,7 +414,7 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
           title="Actions"
           className="nowrap"
           key="action"
-          render={(__, tracing) => this.renderActions(tracing)}
+          render={(__, tracing: APIAnnotationType) => this.renderActions(tracing)}
         />
       </Table>
     );
@@ -439,21 +451,21 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
         ) : (
           <div className="pull-right">
             <FileUpload
-              url="/admin/nml/upload"
+              url="/annotations/upload"
               accept=".nml, .zip"
               name="nmlFile"
               multiple
+              showUploadList={false}
               onSuccess={this.handleNMLUpload}
               onUploading={() => this.setState({ isUploadingNML: true })}
               onError={() => this.setState({ isUploadingNML: false })}
             >
-              <Button icon="upload" loading={this.state.isUploadingNML}>
+              <Button icon="upload" loading={this.state.isUploadingNML} style={marginRight}>
                 Upload Annotation
               </Button>
             </FileUpload>
-            <div className="divider-vertical" />
             <Button onClick={this.toggleShowArchived} style={marginRight}>
-              Show {this.state.shouldShowArchivedTracings ? "Open" : "Archived"} Tracings
+              Show {this.state.shouldShowArchivedTracings ? "Open" : "Archived"} Annotations
             </Button>
             {!this.state.shouldShowArchivedTracings ? (
               <Button onClick={this.archiveAll} style={marginRight}>
@@ -466,15 +478,12 @@ export default class ExplorativeAnnotationsView extends React.PureComponent<Prop
         <h3>Explorative Annotations</h3>
         {this.renderSearchTags()}
         <div className="clearfix" style={{ margin: "20px 0px" }} />
-
-        {this.state.requestCount === 0 ? (
-          this.renderTable()
-        ) : (
-          <div className="text-center">
-            <Spin size="large" />
-          </div>
-        )}
+        <Spin spinning={this.state.isLoading} size="large">
+          {this.renderTable()}
+        </Spin>
       </div>
     );
   }
 }
+
+export default withRouter(ExplorativeAnnotationsView);

@@ -3,15 +3,23 @@
 
 import _ from "lodash";
 import * as React from "react";
+import { Link, withRouter } from "react-router-dom";
 import { Table, Tag, Icon, Spin, Button, Input, Modal } from "antd";
 import Markdown from "react-remarkable";
 import Utils from "libs/utils";
-import Request from "libs/request";
 import messages from "messages";
+import { getTaskTypes, deleteTaskType } from "admin/admin_rest_api";
+import Persistence from "libs/persistence";
+import { PropTypes } from "prop-types";
 import type { APITaskTypeType } from "admin/api_flow_types";
+import type { RouterHistory } from "react-router-dom";
 
 const { Column } = Table;
 const { Search } = Input;
+
+type Props = {
+  history: RouterHistory,
+};
 
 type State = {
   isLoading: boolean,
@@ -19,20 +27,32 @@ type State = {
   searchQuery: string,
 };
 
-class TaskTypeListView extends React.PureComponent<{}, State> {
+const persistence: Persistence<State> = new Persistence(
+  { searchQuery: PropTypes.string },
+  "taskTypeList",
+);
+
+class TaskTypeListView extends React.PureComponent<Props, State> {
   state = {
     isLoading: true,
     tasktypes: [],
     searchQuery: "",
   };
 
+  componentWillMount() {
+    this.setState(persistence.load(this.props.history));
+  }
+
   componentDidMount() {
     this.fetchData();
   }
 
+  componentWillUpdate(nextProps, nextState) {
+    persistence.persist(this.props.history, nextState);
+  }
+
   async fetchData(): Promise<void> {
-    const url = "/api/taskTypes";
-    const tasktypes = await Request.receiveJSON(url);
+    const tasktypes = await getTaskTypes();
 
     this.setState({
       isLoading: false,
@@ -44,22 +64,18 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
     this.setState({ searchQuery: event.target.value });
   };
 
-  deleteTaskType = async (taskType: APITaskTypeType) => {
+  deleteTaskType = (taskType: APITaskTypeType) => {
     Modal.confirm({
       title: messages["taskType.delete"],
-      onOk: () => {
+      onOk: async () => {
         this.setState({
           isLoading: true,
         });
 
-        const url = `/api/taskTypes/${taskType.id}`;
-        Request.receiveJSON(url, {
-          method: "DELETE",
-        }).then(() => {
-          this.setState({
-            isLoading: false,
-            tasktypes: this.state.tasktypes.filter(p => p.id !== taskType.id),
-          });
+        await deleteTaskType(taskType.id);
+        this.setState({
+          isLoading: false,
+          tasktypes: this.state.tasktypes.filter(p => p.id !== taskType.id),
         });
       },
     });
@@ -69,18 +85,19 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
     const marginRight = { marginRight: 20 };
 
     return (
-      <div className="container wide">
+      <div className="container">
         <div style={{ marginTag: 20 }}>
           <div className="pull-right">
-            <a href="/taskTypes/create">
+            <Link to="/taskTypes/create">
               <Button icon="plus" style={marginRight} type="primary">
                 Add TaskType
               </Button>
-            </a>
+            </Link>
             <Search
               style={{ width: 200 }}
               onPressEnter={this.handleSearch}
               onChange={this.handleSearch}
+              value={this.state.searchQuery}
             />
           </div>
           <h3>Task Types</h3>
@@ -103,6 +120,7 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
                 title="ID"
                 dataIndex="id"
                 key="id"
+                width={100}
                 sorter={Utils.localeCompareBy("id")}
                 className="monospace-id"
               />
@@ -110,12 +128,14 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
                 title="Team"
                 dataIndex="team"
                 key="team"
+                width={130}
                 sorter={Utils.localeCompareBy("team")}
               />
               <Column
                 title="Summary"
                 dataIndex="summary"
                 key="summary"
+                width={130}
                 sorter={Utils.localeCompareBy("summary")}
               />
               <Column
@@ -124,10 +144,7 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
                 key="description"
                 sorter={Utils.localeCompareBy("description")}
                 render={description => (
-                  <div
-                    style={{ wordBreak: "break-word", maxHeight: 100, overflowY: "auto" }}
-                    className="task-type-description"
-                  >
+                  <div className="task-type-description">
                     <Markdown
                       source={description}
                       options={{ html: false, breaks: true, linkify: true }}
@@ -137,7 +154,7 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
                 width={300}
               />
               <Column
-                title="Add-On Modes"
+                title="Modes"
                 dataIndex="settings"
                 key="allowedModes"
                 width={100}
@@ -146,7 +163,8 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
                     <Tag key={mode} color={mode === settings.preferredMode ? "blue" : null}>
                       {mode}
                     </Tag>
-                  ))}
+                  ))
+                }
               />
               <Column
                 title="Settings"
@@ -158,8 +176,6 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
                     elements.push(<Tag key="branchPointsAllowed">Branchpoints</Tag>);
                   if (settings.somaClickingAllowed)
                     elements.push(<Tag key="somaClickingAllowed">Soma clicking</Tag>);
-                  if (settings.advancedOptionsAllowed)
-                    elements.push(<Tag key="advancedOptionsAllowed">Advanced Options</Tag>);
                   return elements;
                 }}
                 width={100}
@@ -167,22 +183,23 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
               <Column
                 title="Action"
                 key="actions"
+                width={140}
                 render={(__, taskType: APITaskTypeType) => (
                   <span>
-                    <a href={`/taskTypes/${taskType.id}/edit`} title="Edit taskType">
-                      <Icon type="edit" />Edit
-                    </a>
-                    <br />
-                    <a href={`/annotations/CompoundTaskType/${taskType.id}`} title="View">
+                    <Link to={`/annotations/CompoundTaskType/${taskType.id}`} title="View">
                       <Icon type="eye-o" />View
-                    </a>
+                    </Link>
                     <br />
-                    <a href={`/taskTypes/${taskType.id}/tasks`} title="View Tasks">
-                      <Icon type="book" />Tasks
-                    </a>
+                    <Link to={`/taskTypes/${taskType.id}/edit`} title="Edit taskType">
+                      <Icon type="edit" />Edit
+                    </Link>
+                    <br />
+                    <Link to={`/taskTypes/${taskType.id}/tasks`} title="View Tasks">
+                      <Icon type="schedule" />Tasks
+                    </Link>
                     <br />
                     <a
-                      href={`/api/taskTypes/${taskType.id}/download`}
+                      href={`/annotations/CompoundTaskType/${taskType.id}/download`}
                       title="Download all Finished Tracings"
                     >
                       <Icon type="download" />Download
@@ -202,4 +219,4 @@ class TaskTypeListView extends React.PureComponent<{}, State> {
   }
 }
 
-export default TaskTypeListView;
+export default withRouter(TaskTypeListView);

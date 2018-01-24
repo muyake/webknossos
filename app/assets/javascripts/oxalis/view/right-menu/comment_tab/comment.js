@@ -1,22 +1,31 @@
-import React, { Component } from "react";
-import scrollIntoViewIfNeeded from "scroll-into-view-if-needed";
+// @flow
+import * as React from "react";
+import { scrollIntoViewIfNeeded } from "scroll-into-view-if-needed";
 import classNames from "classnames";
 import Store from "oxalis/store";
 import { setActiveNodeAction } from "oxalis/model/actions/skeletontracing_actions";
+import type { CommentType } from "oxalis/store";
 
-class Comment extends Component {
+type Props = {
+  isActive: boolean,
+  data: CommentType,
+};
+
+class Comment extends React.PureComponent<Props> {
+  comment: ?HTMLLIElement;
+
   componentDidUpdate() {
     this.ensureVisible();
   }
 
   handleClick = () => {
-    Store.dispatch(setActiveNodeAction(this.props.data.node));
+    Store.dispatch(setActiveNodeAction(this.props.data.nodeId));
   };
 
   ensureVisible() {
     if (this.props.isActive) {
       // use polyfill as so far only chrome supports this functionality
-      scrollIntoViewIfNeeded(this.comment);
+      scrollIntoViewIfNeeded(this.comment, { centerIfNeeded: true });
     }
   }
 
@@ -30,15 +39,13 @@ class Comment extends Component {
     return (
       <li
         className={liClassName}
-        id={`comment-tab-node-${data.node}`}
+        id={`comment-tab-node-${data.nodeId}`}
         ref={ref => {
           this.comment = ref;
         }}
       >
         <i className={iClassName} />
-        <a href="#jump-to-comment" onClick={this.handleClick}>
-          {`${data.node} - ${data.content}`}
-        </a>
+        <a onClick={this.handleClick}>{`${data.nodeId} - ${data.content}`}</a>
       </li>
     );
   }
