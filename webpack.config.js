@@ -36,15 +36,15 @@ module.exports = function(env = {}) {
     }),
   ];
 
-  if (env.production) {
-    plugins.push(
-      new UglifyJsPlugin({
-        cache: true,
-        parallel: true,
-        sourceMap: true,
-      }),
-    );
-  }
+  // if (env.production) {
+  // plugins.push(
+  //   new UglifyJsPlugin({
+  //     cache: true,
+  //     parallel: true,
+  //     sourceMap: true,
+  //   }),
+  // );
+  // }
 
   return {
     entry: {
