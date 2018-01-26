@@ -224,7 +224,8 @@ class Plane2D {
     if (
       this.needsRedraw ||
       !_.isEqual(texture.layer, layer) ||
-      !_.isEqual(texture.zoomStep, zoomStep)
+      !_.isEqual(texture.zoomStep, zoomStep) ||
+      !_.isEqual(texture.topLeftBucket, topLeftBucket)
     ) {
       texture.layer = layer;
       texture.zoomStep = zoomStep;
@@ -238,43 +239,6 @@ class Plane2D {
       this.needsRedraw = false;
     }
 
-    // If the top-left-bucket has changed, still visible tiles are copied to their new location
-    if (!_.isEqual(texture.topLeftBucket, topLeftBucket)) {
-      const oldTopLeftBucket = texture.topLeftBucket;
-      texture.topLeftBucket = topLeftBucket;
-
-      texture.tiles = new Array(this.BUCKETS_PER_ROW * this.BUCKETS_PER_ROW);
-      texture.buffer = new Uint8Array(this.TEXTURE_SIZE);
-      texture.ready = false;
-
-      // Calculating boundaries for copying
-      const width =
-        (1 << (constants.TEXTURE_SIZE_P - BUCKET_SIZE_P)) -
-        Math.abs(texture.topLeftBucket[this.U] - oldTopLeftBucket[this.U]);
-      const height =
-        (1 << (constants.TEXTURE_SIZE_P - BUCKET_SIZE_P)) -
-        Math.abs(texture.topLeftBucket[this.V] - oldTopLeftBucket[this.V]);
-      const oldOffset = [
-        Math.max(texture.topLeftBucket[this.U] - oldTopLeftBucket[this.U], 0),
-        Math.max(texture.topLeftBucket[this.V] - oldTopLeftBucket[this.V], 0),
-      ];
-      const newOffset = [
-        Math.max(oldTopLeftBucket[this.U] - texture.topLeftBucket[this.U], 0),
-        Math.max(oldTopLeftBucket[this.V] - texture.topLeftBucket[this.V], 0),
-      ];
-
-      // Copying tiles
-      for (let du = 1; du < width; du++) {
-        for (let dv = 1; dv < height; dv++) {
-          const oldTile = [oldOffset[0] + du, oldOffset[1] + dv];
-          const newTile = [newOffset[0] + du, newOffset[1] + dv];
-
-          tileIndexByTile(oldTile);
-          tileIndexByTile(newTile);
-        }
-      }
-    }
-
     // If something has changed, only changed tiles are drawn
     if (!texture.ready || !_.isEqual(texture.area, area)) {
       texture.ready = true;
@@ -282,16 +246,57 @@ class Plane2D {
 
       // Tiles are rendered from the bottom-right to the top-left corner
       // to make linear interpolation possible in the future
-      for (let u = area[2]; u >= area[0]; u--) {
-        for (let v = area[3]; v >= area[1]; v--) {
-          const tile = [u, v];
-          const tileIndex = tileIndexByTile(tile);
+      // for (let u = area[2]; u >= area[0]; u--) {
+      //   for (let v = area[3]; v >= area[1]; v--) {
+      //     const tile = [u, v];
+      //     const tileIndex = tileIndexByTile(tile);
 
-          // Render tile if necessary and mark it as rendered
+      //     // Render tile if necessary and mark it as rendered
+      //     if (!texture.tiles[tileIndex]) {
+      //       this.renderDataTile(tile);
+      //       texture.tiles[tileIndex] = true;
+      //     }
+      //   }
+      // }
+
+      // data and texture bit depth is expected to be 8 for now
+      // texture.buffer = new Uint8Array(this.TEXTURE_SIZE);
+      function cantor(a, b) {
+        return 0.5 * (a + b) * (a + b + 1) + b;
+      }
+      // Cache the buckets for one render pass
+      const bucketMap = new Map();
+      const textureWidth = 1 << constants.TEXTURE_SIZE_P;
+      for (let y = 0; y < textureWidth; y++) {
+        for (let x = 0; x < textureWidth; x++) {
+          const u = x >> BUCKET_SIZE_P;
+          const v = y >> BUCKET_SIZE_P;
+          const tileIndex = tileIndexByTile([u, v]);
           if (!texture.tiles[tileIndex]) {
-            this.renderDataTile(tile);
-            texture.tiles[tileIndex] = true;
+            let realBucket;
+            if (!bucketMap.has(cantor(u, v))) {
+              const bucket = _.clone(this.dataTexture.topLeftBucket);
+              bucket[this.U] += u;
+              bucket[this.V] += v;
+              realBucket = this.cube.getBucket(bucket);
+              bucketMap.set(cantor(u, v), realBucket);
+            } else {
+              realBucket = bucketMap.get(cantor(u, v));
+            }
+            if (realBucket.hasData()) {
+              const bucketData = realBucket.getData();
+              const bucketWidth = 1 << BUCKET_SIZE_P;
+              texture.buffer[y * textureWidth + x] =
+                bucketData[(y % bucketWidth) * bucketWidth + x % bucketWidth];
+            }
           }
+        }
+      }
+
+      for (let y = 0; y < this.BUCKETS_PER_ROW; y++) {
+        for (let x = 0; x < this.BUCKETS_PER_ROW; x++) {
+          const tileIndex = tileIndexByTile([x, y]);
+          texture.tiles[tileIndex] = true;
         }
       }
 
@@ -300,34 +305,6 @@ class Plane2D {
       // If the texture didn't need to be changed...
       return null;
     }
-  }
-
-  copyTile(
-    destTile: Vector2,
-    sourceTile: Vector2,
-    destBuffer: Uint8Array,
-    sourceBuffer: Uint8Array,
-  ): * {
-    const destOffset = bufferOffsetByTile(destTile, BUCKET_SIZE_P);
-    const sourceOffset = bufferOffsetByTile(sourceTile, BUCKET_SIZE_P);
-
-    return this.renderToBuffer(
-      {
-        buffer: destBuffer,
-        offset: destOffset,
-        widthP: BUCKET_SIZE_P,
-        rowDelta: 1 << constants.TEXTURE_SIZE_P,
-      },
-      {
-        buffer: sourceBuffer,
-        offset: sourceOffset,
-        pixelDelta: 1,
-        rowDelta: 1 << constants.TEXTURE_SIZE_P,
-        pixelRepeatP: 0,
-        rowRepeatP: 0,
-        mapping: null,
-      },
-    );
   }
 
   renderDataTile(tile: Vector2): void {

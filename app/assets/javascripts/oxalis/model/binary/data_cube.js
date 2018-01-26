@@ -217,9 +217,9 @@ class DataCube {
 
   // Returns the Bucket object if it exists, or NULL_BUCKET otherwise.
   getBucket(address: Vector4): Bucket {
-    if (!this.isWithinBounds(address)) {
-      return this.getNullBucket(address);
-    }
+    // if (!this.isWithinBounds(address)) {
+    //   return this.getNullBucket(address);
+    // }
 
     const bucketIndex = this.getBucketIndex(address);
     const cube = this.cubes[address[3]];
