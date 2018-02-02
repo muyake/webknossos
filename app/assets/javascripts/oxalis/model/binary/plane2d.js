@@ -57,8 +57,8 @@ const Plane2DConstants = {
 };
 
 // Helper functions
-function tileIndexByTile(tile: Vector2): number {
-  return tile[0] * (1 << (constants.TEXTURE_SIZE_P - BUCKET_SIZE_P)) + tile[1];
+function tileIndexByTile(u: number, v: number): number {
+  return u * (1 << (constants.TEXTURE_SIZE_P - BUCKET_SIZE_P)) + v;
 }
 
 function subTileMacro(tile: Vector2, index: number): Vector2 {
@@ -148,8 +148,7 @@ class Plane2D {
 
         // If the tile is part of the texture, mark it as changed
         if (u >= 0 && u < this.BUCKETS_PER_ROW && v >= 0 && v < this.BUCKETS_PER_ROW) {
-          const tile = [u, v];
-          this.dataTexture.tiles[tileIndexByTile(tile)] = false;
+          this.dataTexture.tiles[tileIndexByTile(u, v)] = false;
 
           if (
             u >= this.dataTexture.area[0] ||
@@ -233,7 +232,11 @@ class Plane2D {
       texture.area = area;
 
       texture.tiles = new Array(this.BUCKETS_PER_ROW * this.BUCKETS_PER_ROW);
-      texture.buffer = new Uint8Array(this.TEXTURE_SIZE);
+      if (texture.buffer == null) {
+        texture.buffer = new Uint8Array(this.TEXTURE_SIZE);
+      } else {
+        texture.buffer.fill(0);
+      }
       texture.ready = false;
 
       this.needsRedraw = false;
@@ -248,12 +251,11 @@ class Plane2D {
       // to make linear interpolation possible in the future
       // for (let u = area[2]; u >= area[0]; u--) {
       //   for (let v = area[3]; v >= area[1]; v--) {
-      //     const tile = [u, v];
-      //     const tileIndex = tileIndexByTile(tile);
+      //     const tileIndex = tileIndexByTile(u, v);
 
       //     // Render tile if necessary and mark it as rendered
       //     if (!texture.tiles[tileIndex]) {
-      //       this.renderDataTile(tile);
+      //       this.renderDataTile([u, v]);
       //       texture.tiles[tileIndex] = true;
       //     }
       //   }
@@ -264,24 +266,29 @@ class Plane2D {
       function cantor(a, b) {
         return 0.5 * (a + b) * (a + b + 1) + b;
       }
+
       // Cache the buckets for one render pass
-      const bucketMap = new Map();
+      const bucketMap = new Array(1024);
+      bucketMap.fill(null);
       const textureWidth = 1 << constants.TEXTURE_SIZE_P;
+      const _bucket = [0, 0, 0, 0];
       for (let y = 0; y < textureWidth; y++) {
+        const v = y >> BUCKET_SIZE_P;
         for (let x = 0; x < textureWidth; x++) {
           const u = x >> BUCKET_SIZE_P;
-          const v = y >> BUCKET_SIZE_P;
-          const tileIndex = tileIndexByTile([u, v]);
+          const _cantor = cantor(u, v);
+          const tileIndex = tileIndexByTile(u, v);
           if (!texture.tiles[tileIndex]) {
-            let realBucket;
-            if (!bucketMap.has(cantor(u, v))) {
-              const bucket = _.clone(this.dataTexture.topLeftBucket);
-              bucket[this.U] += u;
-              bucket[this.V] += v;
-              realBucket = this.cube.getBucket(bucket);
-              bucketMap.set(cantor(u, v), realBucket);
-            } else {
-              realBucket = bucketMap.get(cantor(u, v));
+            let realBucket = bucketMap[_cantor];
+            if (realBucket == null) {
+              _bucket[0] = this.dataTexture.topLeftBucket[0];
+              _bucket[1] = this.dataTexture.topLeftBucket[1];
+              _bucket[2] = this.dataTexture.topLeftBucket[2];
+              _bucket[3] = this.dataTexture.topLeftBucket[3];
+              _bucket[this.U] += u;
+              _bucket[this.V] += v;
+              realBucket = this.cube.getBucket(_bucket);
+              bucketMap[_cantor] = realBucket;
             }
             if (realBucket.hasData()) {
               const bucketData = realBucket.getData();
@@ -295,7 +302,7 @@ class Plane2D {
 
       for (let y = 0; y < this.BUCKETS_PER_ROW; y++) {
         for (let x = 0; x < this.BUCKETS_PER_ROW; x++) {
-          const tileIndex = tileIndexByTile([x, y]);
+          const tileIndex = tileIndexByTile(x, y);
           texture.tiles[tileIndex] = true;
         }
       }
