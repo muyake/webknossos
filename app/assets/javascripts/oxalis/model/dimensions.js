@@ -4,7 +4,7 @@
  */
 
 import { OrthoViews } from "oxalis/constants";
-import type { OrthoViewType, Vector3 } from "oxalis/constants";
+import type { OrthoViewType, Vector2, Vector3 } from "oxalis/constants";
 
 export type DimensionIndicesType = 0 | 1 | 2;
 export type DimensionMapType = [DimensionIndicesType, DimensionIndicesType, DimensionIndicesType];
@@ -56,6 +56,32 @@ const Dimensions = {
         return 0;
       case OrthoViews.PLANE_XZ:
         return 1;
+      default:
+        throw new Error(`Unrecognized plane ID: ${planeID}`);
+    }
+  },
+
+  translate3Dto2D(coord3D: Vector3, planeID: OrthoViewType): Vector2 {
+    switch (planeID) {
+      case OrthoViews.PLANE_XY:
+        return [coord3D[0], coord3D[1]];
+      case OrthoViews.PLANE_YZ:
+        return [coord3D[1], coord3D[2]];
+      case OrthoViews.PLANE_XZ:
+        return [coord3D[0], coord3D[2]];
+      default:
+        throw new Error(`Unrecognized plane ID: ${planeID}`);
+    }
+  },
+
+  translate2Dto3D(coord2D: Vector2, thirdDimensionValue: number, planeID: OrthoViewType): Vector3 {
+    switch (planeID) {
+      case OrthoViews.PLANE_XY:
+        return [coord2D[0], coord2D[1], thirdDimensionValue];
+      case OrthoViews.PLANE_YZ:
+        return [thirdDimensionValue, coord2D[0], coord2D[1]];
+      case OrthoViews.PLANE_XZ:
+        return [coord2D[0], thirdDimensionValue, coord2D[1]];
       default:
         throw new Error(`Unrecognized plane ID: ${planeID}`);
     }

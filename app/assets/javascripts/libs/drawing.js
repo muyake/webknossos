@@ -21,10 +21,10 @@ class Drawing {
 
   // Source: http://en.wikipedia.org/wiki/Bresenham's_line_algorithm#Simplification
   drawLine2d(x: number, y: number, x1: number, y1: number, draw: (number, number) => void) {
-    x = Math.round(x);
-    y = Math.round(y);
-    x1 = Math.round(x1);
-    y1 = Math.round(y1);
+    x = Math.floor(x);
+    y = Math.floor(y);
+    x1 = Math.floor(x1);
+    y1 = Math.floor(y1);
     let d;
     let mode;
     let dx = x1 - x;
@@ -181,15 +181,20 @@ class Drawing {
   }
 
   // Source: http://will.thimbleby.net/scanline-flood-fill/
-  fillArea(
-    x: number,
-    y: number,
+  scanlineFloodFill(
+    offsetX: number,
+    offsetY: number,
     width: number,
     height: number,
     diagonal: boolean,
     test: (number, number) => boolean,
     paint: (number, number) => void,
   ) {
+    const x = offsetX;
+    let y = offsetY;
+    const extentX = offsetX + width;
+    const extentY = offsetY + height;
+
     // xMin, xMax, y, down[true] / up[false], extendLeft, extendRight
     const ranges: Array<RangeItem> = [[x, x, y, null, true, true]];
     paint(x, y);
@@ -203,32 +208,32 @@ class Drawing {
       const extendLeft = r[4];
       const extendRight = r[5];
       if (extendLeft) {
-        while (minX > 0 && test(minX - 1, y)) {
+        while (minX > offsetX && test(minX - 1, y)) {
           minX--;
           paint(minX, y);
         }
       }
       if (extendRight) {
-        while (maxX < width - 1 && test(maxX + 1, y)) {
+        while (maxX < extentX - 1 && test(maxX + 1, y)) {
           maxX++;
           paint(maxX, y);
         }
       }
       if (diagonal) {
-        if (minX > 0) {
+        if (minX > offsetX) {
           minX--;
         }
-        if (maxX < width - 1) {
+        if (maxX < extentX - 1) {
           maxX++;
         }
       } else {
         r[0]--;
         r[1]++;
       }
-      if (y < height) {
+      if (y < extentY) {
         this.addNextLine(y + 1, !up, true, minX, maxX, r, ranges, test, paint);
       }
-      if (y > 0) {
+      if (y > offsetY) {
         this.addNextLine(y - 1, !down, false, minX, maxX, r, ranges, test, paint);
       }
     }
