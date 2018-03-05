@@ -189,7 +189,11 @@ class VolumeLayer {
     const baseVoxelFactors = this.get2DCoordinate(
       getBaseVoxelFactors(Store.getState().dataset.scale),
     );
-    Drawing.fillCircle(coord2d[0], coord2d[1], radius, baseVoxelFactors, map.setTrue);
+    if (radius <= 20) {
+      Drawing.fillCircleExact(coord2d[0], coord2d[1], radius, baseVoxelFactors, map.setTrue, map);
+    } else {
+      Drawing.fillCircle(coord2d[0], coord2d[1], radius, baseVoxelFactors, map.setTrue);
+    }
 
     const iterator = new VoxelIterator(map, this.get3DCoordinate.bind(this));
     return iterator;

@@ -130,6 +130,8 @@ class Drawing {
     scale: [number, number],
     drawPixel: (number, number) => void,
   ) {
+    x0 = Math.ceil(x0);
+    y0 = Math.ceil(y0);
     let x = radius - 1;
     let y = 0;
     let dx = 1;
@@ -176,6 +178,28 @@ class Drawing {
         dx += 2;
         // Change for y -> y+1, x -> x-1
         decisionOver2 += (-radius << 1) + dx;
+      }
+    }
+  }
+
+  fillCircleExact(
+    x0: number,
+    y0: number,
+    radius: number,
+    scale: [number, number],
+    drawPixel: (number, number) => void,
+    map: BitMap,
+  ) {
+    function pointInCircle(x, y) {
+      const dx = (x - x0) * scale[0];
+      const dy = (y - y0) * scale[1];
+      return Math.sqrt(dx * dx + dy * dy) < radius;
+    }
+    for (let x = map.offset[0]; x < map.offset[0] + map.size[0]; x++) {
+      for (let y = map.offset[1]; y < map.offset[1] + map.size[1]; y++) {
+        if (pointInCircle(x, y) || pointInCircle(x + 1, y) || pointInCircle(x, y + 1) || pointInCircle(x + 1, y + 1)) {
+          drawPixel(x, y);
+        }
       }
     }
   }
